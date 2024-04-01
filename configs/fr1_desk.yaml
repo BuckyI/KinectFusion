@@ -1,10 +1,10 @@
-data_root: "/home/jingwen/data/tum_rgbd/rgbd_dataset_freiburg1_desk"
-data_type: "fr1"
-near: 0.1
-far: 5.0
-vol_bounds: [-2.5, 2.0, -0.7, 2.7, -0.2, 2.0]
-voxel_size: 0.04
-n_pyramids: 3
-n_iters: [6, 3, 3]
-dampings: [1.0e-4, 1.0e-4, 1.0e-2]
-n_steps: 192
+data_root: "/home/jingwen/data/tum_rgbd/rgbd_dataset_freiburg1_desk" # 数据集位置，这个应该修改成自己的数据集位置
+data_type: "fr1"  # 决定了相机内参是什么
+near: 0.1 # near bound for ray-casting 影响源数据深度截取和渲染
+far: 5.0 # far bound for ray-casting 影响源数据深度截取和渲染
+vol_bounds: [-2.5, 2.0, -0.7, 2.7, -0.2, 2.0]  # x_min, x_max, y_min, y_max, z_min, z_max
+voxel_size: 0.04  # 影响重建阶段的体素尺寸
+n_pyramids: 3 # KinectFusion 利用金字塔结构进行 ICP 配准，这里设置 3 个层级，尺度具体为 2^0, 2^1, 2^2 大小的池化
+n_iters: [6, 3, 3] # 每个尺度的 ICP 迭代次数
+dampings: [1.0e-4, 1.0e-4, 1.0e-2] # ICP 梯度下降的阻尼系数[AI提示的]
+n_steps: 192 # ICP迭代次数
