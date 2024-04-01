@@ -1,0 +1,5 @@
+addict
+trimesh
+scikit-image
+imageio
+opencv-python
