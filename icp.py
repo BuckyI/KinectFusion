@@ -140,22 +140,22 @@ def compute_vertex(depth, K):
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
     device = depth.device
 
-    # 🌟 torch.linspace(0, W - 1, W) 生成 [0, 1, 2, ..., W - 1]，更好的写法应该是 torch.arange(0, W)
+    # NOTE: torch.linspace(0, W - 1, W) 生成 [0, 1, 2, ..., W - 1]，更好的写法应该是 torch.arange(0, W)
     # i, j = torch.meshgrid(torch.linspace(0, W - 1, W), torch.linspace(0, H - 1, H))  # pytorch's meshgrid has indexing='ij'
     # i = i.t().to(device)  # [h, w]
     # j = j.t().to(device)  # [h, w]
     # vertex = torch.stack([(i - cx) / fx, (j - cy) / fy, torch.ones_like(i)], -1).to(device) * depth[..., None]  # [h, w, 3]
 
-    # 🌟 this is better:
+    # NOTE: this is better:
     Y, X = torch.meshgrid(torch.arange(0, H), torch.linspace(0, W))
     Y, X = Y.to(device), X.to(device)  # [H, W]
     vertex = torch.stack([(X - cx) / fx, (Y - cy) / fy, torch.ones_like(X)], -1).to(device) * depth[..., None]  # [H, W, 3]
-    # 🌟depth[..., None] 增加了一个维度，使得可以广播，将坐标 (x', y', 1) -> (x, y, z)
+    # NOTE: depth[..., None] 增加了一个维度，使得可以广播，将坐标 (x', y', 1) -> (x, y, z)
     return vertex
 
 
 def compute_normal(vertex_map):
-    """ Calculate the normal map from a depth map
+    """Calculate the normal map from a depth map
     :param the input depth image
     -----------
     :return the normal map
@@ -163,40 +163,56 @@ def compute_normal(vertex_map):
     H, W, C = vertex_map.shape
     img_dx, img_dy = feature_gradient(vertex_map, normalize_gradient=False)  # [h, w, 3]
 
+    # tensor.view(-1, 3): [h, w, 3] -> [h * w, 3]
+    # cross product 这里让对应像素点 x, y 方向的梯度进行叉乘，获得垂直于两个梯度方向的向量，作为垂直于表面的法向量
     normal = torch.cross(img_dx.view(-1, 3), img_dy.view(-1, 3))
     normal = normal.view(H, W, 3)  # [h, w, 3]
 
+    # 沿着最后一个维度（即存储坐标的维度）求欧式二范数，获得 [h, w, 1] 表示模长
     mag = torch.norm(normal, p=2, dim=-1, keepdim=True)
     normal = normal / (mag + 1e-8)
 
     # filter out invalid pixels
-    depth = vertex_map[:, :, -1]
+    depth = vertex_map[:, :, -1]  # 取出深度信息
     # 0.5 and 5.
+    # NOTE: 这里让深度值为最大值或最小值的像素点，法向信息设为 0，不明白为什么……
     invalid_mask = (depth <= depth.min()) | (depth >= depth.max())
     zero_normal = torch.zeros_like(normal)
+    # 在 invalid_mask 为 True 的位置，法向置 0，否则保留计算得到的法向
     normal = torch.where(invalid_mask[..., None], zero_normal, normal)
 
     return normal
 
 
 def feature_gradient(img, normalize_gradient=True):
-    """ Calculate the gradient on the feature space using Sobel operator
+    """Calculate the gradient on the feature space using Sobel operator
+    NOTE: 实际使用时，输入 vertex map，返回的梯度实际上就是空间 x, y, z 方向上的梯度信息（3x3卷积）
     :param the input image
     -----------
     :return the gradient of the image in x, y direction
     """
     H, W, C = img.shape
     # to filter the image equally in each channel
+    # 检测水平方向和垂直方向梯度的 Sobel 算子，变成 [1, 1, 3, 3] 形状
     wx = torch.FloatTensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).view(1, 1, 3, 3).type_as(img)
     wy = torch.FloatTensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).view(1, 1, 3, 3).type_as(img)
 
+    # 这里调整 img 的维度，以适应后面 F.conv2d 对输入的要求
+    # permute 调换维度顺序 H, W, C -> C, H, W
+    # view 继续修改维度 C, H, W -> C, 1, H, W
     img_permuted = img.permute(2, 0, 1).view(-1, 1, H, W)  # [c, 1, h, w]
-    img_pad = F.pad(img_permuted, (1, 1, 1, 1), mode='replicate')
+
+    # pad (1, 1, 1, 1) 上、下、左、右各扩展 1 像素，采用 replicate 模式阻止产生梯度，下面的卷积就不需要 padding 了
+    img_pad = F.pad(img_permuted, (1, 1, 1, 1), mode="replicate")  # [c, 1, h+2, w+2]
+    # F.conv2d: https://pytorch.org/docs/stable/generated/torch.nn.functional.conv2d.html
+    # input: (minibatch, in_channels, iH, iW)
+    # weight: (out_channels, in_channels/groups, kH, kW)
+    # [c, 1, h+2, w+2] -> [c, 1, h, w] -> [c, h, w] -> [h, w, c]
     img_dx = F.conv2d(img_pad, wx, stride=1, padding=0).squeeze().permute(1, 2, 0)  # [h, w, c]
     img_dy = F.conv2d(img_pad, wy, stride=1, padding=0).squeeze().permute(1, 2, 0)  # [h, w, c]
 
     if normalize_gradient:
-        mag = torch.sqrt((img_dx ** 2) + (img_dy ** 2) + 1e-8)
+        mag = torch.sqrt((img_dx**2) + (img_dy**2) + 1e-8)
         img_dx = img_dx / mag
         img_dy = img_dy / mag
 
