@@ -160,6 +160,8 @@ def compute_vertex(depth, K):
     Y, X = Y.to(device), X.to(device)  # [H, W]
     vertex = torch.stack([(X - cx) / fx, (Y - cy) / fy, torch.ones_like(X)], -1).to(device) * depth[..., None]  # [H, W, 3]
     # NOTE: depth[..., None] 增加了一个维度，使得可以广播，将坐标 (x', y', 1) -> (x, y, z)
+    vertex = vertex.to(torch.float32)  # 这里把 tensor 的数据类型从 float64 改成了 float32, 不然后面会报错
+
     return vertex
 
 
