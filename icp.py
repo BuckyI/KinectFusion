@@ -5,10 +5,11 @@ import torch.nn.functional as F
 
 # forward ICP
 class ICP(nn.Module):
-    def __init__(self,
-                 max_iter=3,
-                 damping=1e-3,
-                 ):
+    def __init__(
+        self,
+        max_iter=3,
+        damping=1e-3,
+    ):
         """
         :param max_iter, maximum number of iterations
         :param damping, damping added to Hessian matrix
@@ -30,12 +31,14 @@ class ICP(nn.Module):
         # create vertex and normal for current frame
         vertex0 = compute_vertex(depth0, K)
         normal0 = compute_normal(vertex0)
-        mask0 = depth0 > 0.
+        mask0 = depth0 > 0.0  # 深度图中，深度为 0 的像素点是无效点
         vertex1 = compute_vertex(depth1, K)
         normal1 = compute_normal(vertex1)
 
         for idx in range(self.max_iterations):
             # compute residuals
+            # NOTE: Gauss-Newton optimization 求解 ICP 的最小二乘问题
+            # TODO: 待进一步学习
             residuals, J_F_p = self.compute_residuals_jacobian(vertex0, vertex1, normal0, normal1, mask0, pose10, K)
             JtWJ = self.compute_jtj(J_F_p)  # [B, 6, 6]
             JtR = self.compute_jtr(J_F_p, residuals)
@@ -68,11 +71,11 @@ class ICP(nn.Module):
         u_ = (x_ / z_) * fx + cx  # [h, w]
         v_ = (y_ / z_) * fy + cy  # [h, w]
 
-        inviews = (u_ > 0) & (u_ < W-1) & (v_ > 0) & (v_ < H-1)
+        inviews = (u_ > 0) & (u_ < W - 1) & (v_ > 0) & (v_ < H - 1)
         # projective data association
         r_vertex1 = warp_features(vertex1, u_, v_)  # [h, w, 3]
         r_normal1 = warp_features(normal1, u_, v_)  # [h, w, 3]
-        mask1 = r_vertex1[..., -1] > 0.
+        mask1 = r_vertex1[..., -1] > 0.0
 
         diff = vertex0_to1 - r_vertex1  # [h, w, 3]
 
@@ -80,7 +83,7 @@ class ICP(nn.Module):
         res = (r_normal1 * diff).sum(dim=-1)  # [h, w]
         # point-to-plane jacobians
         J_trs = r_normal1.view(-1, 3)  # [hw, 3]
-        J_rot = -torch.bmm(J_trs.unsqueeze(dim=1), batch_skew(vertex0_to1.view(-1, 3))).squeeze()   # [hw, 3]
+        J_rot = -torch.bmm(J_trs.unsqueeze(dim=1), batch_skew(vertex0_to1.view(-1, 3))).squeeze()  # [hw, 3]
 
         # compose jacobians
         J_F_p = torch.cat((J_rot, J_trs), dim=-1).view(H, W, 6)  # follow the order of [rot, trs]  [hw, 1, 6]
@@ -88,8 +91,8 @@ class ICP(nn.Module):
         # occlusion
         occ = ~inviews | (diff.norm(p=2, dim=-1) > 0.10)
         invalid_mask = occ | ~mask0 | ~mask1
-        J_F_p[invalid_mask] = 0.
-        res[invalid_mask] = 0.
+        J_F_p[invalid_mask] = 0.0
+        res[invalid_mask] = 0.0
         res = res.view(-1, 1)  # [hw, 1]
         J_F_p = J_F_p.view(-1, 1, 6)  # [hw, 1, 6]
 
@@ -121,7 +124,7 @@ class ICP(nn.Module):
         return updated_pose
 
 
-def warp_features(Feat, u, v, mode='bilinear'):
+def warp_features(Feat, u, v, mode="bilinear"):
     """
     Warp the feature map (F) w.r.t. the grid (u, v). This is the non-batch version
     """
@@ -130,7 +133,13 @@ def warp_features(Feat, u, v, mode='bilinear'):
     u_norm = u / ((W - 1) / 2) - 1  # [h, w]
     v_norm = v / ((H - 1) / 2) - 1  # [h, w]
     uv_grid = torch.cat((u_norm.view(1, H, W, 1), v_norm.view(1, H, W, 1)), dim=-1)
-    Feat_warped = F.grid_sample(Feat.unsqueeze(0).permute(0, 3, 1, 2), uv_grid, mode=mode, padding_mode='border', align_corners=True).squeeze()
+    Feat_warped = F.grid_sample(
+        Feat.unsqueeze(0).permute(0, 3, 1, 2),
+        uv_grid,
+        mode=mode,
+        padding_mode="border",
+        align_corners=True,
+    ).squeeze()
     return Feat_warped.permute(1, 2, 0)
 
 
@@ -220,7 +229,7 @@ def feature_gradient(img, normalize_gradient=True):
 
 
 def batch_skew(w):
-    """ Generate a batch of skew-symmetric matrices.
+    """Generate a batch of skew-symmetric matrices.
 
         function tested in 'test_geometry.py'
 
@@ -231,7 +240,7 @@ def batch_skew(w):
     :param the skew-symmetric matrix Bx3x3
     """
     B, D = w.shape
-    assert(D == 3)
+    assert D == 3
     o = torch.zeros(B).type_as(w)
     w0, w1, w2 = w[:, 0], w[:, 1], w[:, 2]
     return torch.stack((o, -w2, w1, w2, o, -w0, -w1, w0, o), 1).view(B, 3, 3)
@@ -267,14 +276,12 @@ def exp_se3(xi):
     """
     w = xi[:3].squeeze()  # rotation
     v = xi[3:6].squeeze()  # translation
-    w_hat = torch.tensor([[0., -w[2], w[1]],
-                          [w[2], 0., -w[0]],
-                          [-w[1], w[0], 0.]]).to(xi)
+    w_hat = torch.tensor([[0.0, -w[2], w[1]], [w[2], 0.0, -w[0]], [-w[1], w[0], 0.0]]).to(xi)
     w_hat_second = torch.mm(w_hat, w_hat).to(xi)
 
     theta = torch.norm(w)
-    theta_2 = theta ** 2
-    theta_3 = theta ** 3
+    theta_2 = theta**2
+    theta_3 = theta**3
     sin_theta = torch.sin(theta)
     cos_theta = torch.cos(theta)
     eye_3 = torch.eye(3).to(xi)
@@ -285,7 +292,7 @@ def exp_se3(xi):
         e_w = eye_3
         j = eye_3
     else:
-        e_w = eye_3 + w_hat * sin_theta / theta + w_hat_second * (1. - cos_theta) / theta_2
+        e_w = eye_3 + w_hat * sin_theta / theta + w_hat_second * (1.0 - cos_theta) / theta_2
         k1 = (1 - cos_theta) / theta_2
         k2 = (theta - sin_theta) / theta_3
         j = eye_3 + k1 * w_hat + k2 * w_hat_second
@@ -299,7 +306,7 @@ def exp_se3(xi):
 
 
 def invH(H):
-    """ Generate (H+damp)^{-1}, with predicted damping values
+    """Generate (H+damp)^{-1}, with predicted damping values
     :param approximate Hessian matrix JtWJ
     -----------
     :return the inverse of Hessian
