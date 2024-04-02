@@ -156,7 +156,7 @@ def compute_vertex(depth, K):
     # vertex = torch.stack([(i - cx) / fx, (j - cy) / fy, torch.ones_like(i)], -1).to(device) * depth[..., None]  # [h, w, 3]
 
     # NOTE: this is better:
-    Y, X = torch.meshgrid(torch.arange(0, H), torch.linspace(0, W))
+    Y, X = torch.meshgrid(torch.arange(0, H), torch.arange(0, W))
     Y, X = Y.to(device), X.to(device)  # [H, W]
     vertex = torch.stack([(X - cx) / fx, (Y - cy) / fy, torch.ones_like(X)], -1).to(device) * depth[..., None]  # [H, W, 3]
     # NOTE: depth[..., None] 增加了一个维度，使得可以广播，将坐标 (x', y', 1) -> (x, y, z)
