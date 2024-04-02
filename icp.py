@@ -135,15 +135,22 @@ def warp_features(Feat, u, v, mode='bilinear'):
 
 
 def compute_vertex(depth, K):
+    "深度图恢复点云"
     H, W = depth.shape
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
     device = depth.device
 
-    i, j = torch.meshgrid(torch.linspace(0, W - 1, W), torch.linspace(0, H - 1, H))  # pytorch's meshgrid has indexing='ij'
-    i = i.t().to(device)  # [h, w]
-    j = j.t().to(device)  # [h, w]
+    # 🌟 torch.linspace(0, W - 1, W) 生成 [0, 1, 2, ..., W - 1]，更好的写法应该是 torch.arange(0, W)
+    # i, j = torch.meshgrid(torch.linspace(0, W - 1, W), torch.linspace(0, H - 1, H))  # pytorch's meshgrid has indexing='ij'
+    # i = i.t().to(device)  # [h, w]
+    # j = j.t().to(device)  # [h, w]
+    # vertex = torch.stack([(i - cx) / fx, (j - cy) / fy, torch.ones_like(i)], -1).to(device) * depth[..., None]  # [h, w, 3]
 
-    vertex = torch.stack([(i - cx) / fx, (j - cy) / fy, torch.ones_like(i)], -1).to(device) * depth[..., None]  # [h, w, 3]
+    # 🌟 this is better:
+    Y, X = torch.meshgrid(torch.arange(0, H), torch.linspace(0, W))
+    Y, X = Y.to(device), X.to(device)  # [H, W]
+    vertex = torch.stack([(X - cx) / fx, (Y - cy) / fy, torch.ones_like(X)], -1).to(device) * depth[..., None]  # [H, W, 3]
+    # 🌟depth[..., None] 增加了一个维度，使得可以广播，将坐标 (x', y', 1) -> (x, y, z)
     return vertex
 
 
