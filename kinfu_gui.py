@@ -39,6 +39,7 @@ def refresh(vis):
 
     sample = vis_param.dataset[vis_param.frame_id]  # 取出当前帧
     color0, depth0, pose_gt, K = sample  # use live image as template image (0)
+    #  NOTE: 数据集中，提供了 pose 的真值，但是算法中实际并没有使用真值参与重建
     # depth0[depth0 <= 0.5] = 0.
     if vis_param.frame_id == 0:  # 第一帧的初始位姿使用了 ground-truth，不过我觉得使用单位矩阵就好了
         vis_param.curr_pose = pose_gt
@@ -115,6 +116,7 @@ def follow_camera(vis, c2w, z_offset=-2):
     e2c[2, 3] = z_offset  # z 轴给一个固定的偏移
     e2w = c2w @ e2c
     # TODO: 这里的原理还不太明白
+    # e2w 应该是代表了视角 eye 到 world 的变换，不过设定观察视角时，需要的是 world 到 eye 的变换，即 eye 的位姿
     set_view(vis, np.linalg.inv(e2w))
 
 
