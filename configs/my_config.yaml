@@ -1,0 +1,10 @@
+data_root: "E:/3d-datasets/rgbd_dataset_freiburg1_desk" # 数据集位置，这个应该修改成自己的数据集位置
+data_type: "fr1" # 决定了相机内参是什么
+near: 0.1
+far: 5.0
+vol_bounds: [-2.5, 2.0, -0.7, 2.7, -0.2, 2.0] # x_min, x_max, y_min, y_max, z_min, z_max
+voxel_size: 0.02 # 影响重建阶段体素尺寸
+n_pyramids: 3
+n_iters: [6, 3, 3]
+dampings: [1.0e-4, 1.0e-4, 1.0e-2]
+n_steps: 192
