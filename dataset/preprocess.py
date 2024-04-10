@@ -1,9 +1,28 @@
-import os
-import math
-import shutil
-import numpy as np
+"""
+该脚本主要对 TUM 数据集进行预处理
+
+数据集提供了 depth maps (时间戳, 图片路径), rgb (时间戳, 图片路径), ground truth trajectory (时间戳, 位置和四元数姿态)
+脚本首先是将三者合并，因为三者时间戳并非对齐的，所以根据时间相差最小的原则进行一一对应（关联时间戳），获得 rgb_dep_traj.txt
+然后将四元数表示的姿态转化成矩阵形式，得到 raw_poses.npz
+然后将相机内参与外参（刚才得到的位姿）再次合并，得到相机的投影矩阵，保存在 cameras.npz 中
+数据集读取时，从投影矩阵中分解得到相机内外参数。
+
+"""
+
 import argparse
+import math
+import os
+import shutil
+import sys
+
+import numpy as np
 from tum_rgbd import get_calib
+
+# 这里源代码不能正常导入
+# 为了正确导入 utils.py
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(parent_dir)
+
 from utils import load_config
 
 
@@ -24,9 +43,9 @@ def read_file_list(filename):
     """
     file = open(filename)
     data = file.read()
-    lines = data.replace(","," ").replace("\t"," ").split("\n")
-    list = [[v.strip() for v in line.split(" ") if v.strip()!=""] for line in lines if len(line)>0 and line[0]!="#"]
-    list = [(float(l[0]),l[1:]) for l in list if len(l)>1]
+    lines = data.replace(",", " ").replace("\t", " ").split("\n")
+    list = [[v.strip() for v in line.split(" ") if v.strip() != ""] for line in lines if len(line) > 0 and line[0] != "#"]
+    list = [(float(l[0]), l[1:]) for l in list if len(l) > 1]
     return dict(list)
 
 
@@ -47,10 +66,9 @@ def associate(first_list, second_list, offset=0.0, max_difference=0.02):
     """
     first_keys = list(first_list)
     second_keys = list(second_list)
-    potential_matches = [(abs(a - (b + offset)), a, b)
-                         for a in first_keys
-                         for b in second_keys
-                         if abs(a - (b + offset)) < max_difference]
+    potential_matches = [
+        (abs(a - (b + offset)), a, b) for a in first_keys for b in second_keys if abs(a - (b + offset)) < max_difference
+    ]
     potential_matches.sort()
     matches = []
     for diff, a, b in potential_matches:
@@ -69,13 +87,17 @@ def get_association(file_a, file_b, out_file):
     matches = associate(first_list, second_list)
     with open(out_file, "w") as f:
         for a, b in matches:
-            line = "%f %s %f %s\n" % (a, " ".join(first_list[a]), b, " ".join(second_list[b]))
+            line = "%f %s %f %s\n" % (
+                a,
+                " ".join(first_list[a]),
+                b,
+                " ".join(second_list[b]),
+            )
             f.write(line)
 
 
 def tum2matrix(pose):
-    """Return homogeneous rotation matrix from quaternion.
-    """
+    """Return homogeneous rotation matrix from quaternion."""
     t = pose[:3]
     # under TUM format q is in the order of [x, y, z, w], need change to [w, x, y, z]
     quaternion = [pose[6], pose[3], pose[4], pose[5]]
@@ -86,11 +108,14 @@ def tum2matrix(pose):
 
     q *= math.sqrt(2.0 / n)
     q = np.outer(q, q)
-    return np.array([
-        [1.0-q[2, 2]-q[3, 3],     q[1, 2]-q[3, 0],     q[1, 3]+q[2, 0], t[0]],
-        [    q[1, 2]+q[3, 0], 1.0-q[1, 1]-q[3, 3],     q[2, 3]-q[1, 0], t[1]],
-        [    q[1, 3]-q[2, 0],     q[2, 3]+q[1, 0], 1.0-q[1, 1]-q[2, 2], t[2]],
-        [0., 0., 0., 1.]])
+    return np.array(
+        [
+            [1.0 - q[2, 2] - q[3, 3], q[1, 2] - q[3, 0], q[1, 3] + q[2, 0], t[0]],
+            [q[1, 2] + q[3, 0], 1.0 - q[1, 1] - q[3, 3], q[2, 3] - q[1, 0], t[1]],
+            [q[1, 3] - q[2, 0], q[2, 3] + q[1, 0], 1.0 - q[1, 1] - q[2, 2], t[2]],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
 
 
 def get_poses_from_associations(fname):
@@ -107,13 +132,26 @@ def get_poses_from_associations(fname):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # standard configs
-    parser.add_argument('--config', type=str, default="../configs/fr1_desk.yaml", help='Path to config file.')
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="../configs/fr1_desk.yaml",
+        help="Path to config file.",
+    )
     args = load_config(parser.parse_args())
     out_dir = os.path.join(args.data_root, "processed")
 
     # create association files
-    get_association(os.path.join(args.data_root, "depth.txt"), os.path.join(args.data_root, "groundtruth.txt"), os.path.join(args.data_root, "dep_traj.txt"))
-    get_association(os.path.join(args.data_root, "rgb.txt"), os.path.join(args.data_root, "dep_traj.txt"), os.path.join(args.data_root, "rgb_dep_traj.txt"))
+    get_association(
+        os.path.join(args.data_root, "depth.txt"),
+        os.path.join(args.data_root, "groundtruth.txt"),
+        os.path.join(args.data_root, "dep_traj.txt"),
+    )
+    get_association(
+        os.path.join(args.data_root, "rgb.txt"),
+        os.path.join(args.data_root, "dep_traj.txt"),
+        os.path.join(args.data_root, "rgb_dep_traj.txt"),
+    )
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -130,9 +168,15 @@ if __name__ == "__main__":
         for i, line in enumerate(f.readlines()):
             line_list = line.strip().split(" ")
             rgb_file = line_list[1]
-            shutil.copyfile(os.path.join(args.data_root, rgb_file), os.path.join(out_rgb_dir, "%04d.png" % i))
+            shutil.copyfile(
+                os.path.join(args.data_root, rgb_file),
+                os.path.join(out_rgb_dir, "%04d.png" % i),
+            )
             dep_file = line_list[3]
-            shutil.copyfile(os.path.join(args.data_root, dep_file), os.path.join(out_dep_dir, "%04d.png" % i))
+            shutil.copyfile(
+                os.path.join(args.data_root, dep_file),
+                os.path.join(out_dep_dir, "%04d.png" % i),
+            )
             poses += [tum2matrix([float(x) for x in line_list[5:]])]
 
     np.savez(os.path.join(out_dir, "raw_poses.npz"), c2w_mats=poses)
@@ -152,4 +196,3 @@ if __name__ == "__main__":
         P = K @ w2c[:3, :]
         P_mats += [P]
     np.savez(os.path.join(out_dir, "cameras.npz"), world_mats=P_mats)
-
