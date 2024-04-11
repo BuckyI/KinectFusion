@@ -98,15 +98,18 @@ class TSDFVolumeTorch:
         elif isinstance(origin, np.ndarray):
             origin = torch.from_numpy(origin).to(self.device)
 
-        self.vol_dim = voxel_dim.long()
+        assert isinstance(voxel_dim, torch.Tensor)  # for type checker
+        self.vol_dim = voxel_dim.long()  # `.long()`  is equivalent to `.to(torch.int64)`
+        self.vol_dim_: list[int] = [int(i) for i in self.vol_dim]  # NOTE: 因为后面类型检查器问题太多了，所以创建这个代替使用
+
         self.vol_origin = origin
         self.num_voxels = torch.prod(self.vol_dim).item()
 
         # Get voxel grid coordinates
         xv, yv, zv = torch.meshgrid(
-            torch.arange(0, self.vol_dim[0]),
-            torch.arange(0, self.vol_dim[1]),
-            torch.arange(0, self.vol_dim[2]),
+            torch.arange(0, self.vol_dim_[0]),
+            torch.arange(0, self.vol_dim_[1]),
+            torch.arange(0, self.vol_dim_[2]),
         )
         self.vox_coords = torch.stack([xv.flatten(), yv.flatten(), zv.flatten()], dim=1).long().to(self.device)
 
@@ -119,12 +122,14 @@ class TSDFVolumeTorch:
     def reset(self):
         """Set volumes"""
         # self.tsdf_vol是当前计算得到的全局TSDF
-        self.tsdf_vol = torch.ones(*self.vol_dim).to(self.device)  # *self.vol_dim表示将vol_dim这个list解包成3个参数传入
+        # *self.vol_dim表示将vol_dim这个list解包成3个参数传入，其实直接用 self.vol_dim 也可以。
+        # ~~NOTE: 这里类型检查器会报错，原因是它不知道 self.vol_dim 是一个 3x1 的 int 类型~~
+        self.tsdf_vol: torch.Tensor = torch.ones(*self.vol_dim_).to(self.device)
         # self.weight_vol是当前计算得到的全局权重
-        self.weight_vol = torch.zeros(*self.vol_dim).to(self.device)
+        self.weight_vol: torch.Tensor = torch.zeros(*self.vol_dim_).to(self.device)
         if self.fuse_color:
             # [nx, ny, nz, 3]
-            self.color_vol = torch.zeros(*self.vol_dim, 3).to(self.device)
+            self.color_vol = torch.zeros(*self.vol_dim_, 3).to(self.device)
         else:
             self.color_vol = None
 
@@ -182,6 +187,7 @@ class TSDFVolumeTorch:
         verts = verts * self.voxel_size + self.vol_origin.cpu().numpy()  # voxel grid coordinates to world coordinates
 
         if self.fuse_color:
+            assert color_vol is not None  # for type checker, 因为前面程序设定 self.fuse_color == True 时才会赋值
             rgb_vals = color_vol[verts_ind[:, 0], verts_ind[:, 1], verts_ind[:, 2]].cpu().numpy()
             return verts, faces, norms, rgb_vals.astype(np.uint8)
         else:
@@ -189,18 +195,27 @@ class TSDFVolumeTorch:
 
     def to_o3d_mesh(self):
         """Convert to o3d mesh object for visualization"""
-        verts, faces, norms, colors = self.get_mesh()
-        # verts, faces, norms = self.get_mesh()
+        result = self.get_mesh()
+        if self.fuse_color:
+            # NOTE: 源代码初始化时，设定了 fuse_color=True，所以返回值有 4 个
+            assert len(result) == 4  # 给类型检查器确定
+            verts, faces, norms, colors = result
+            colors /= 255.0  # [0, 255] -> [0, 1]
+        else:
+            assert len(result) == 3  # 给类型检查器确定
+            verts, faces, norms = result
+            colors = 0.5
+
         mesh = o3d.geometry.TriangleMesh()
         mesh.vertices = o3d.utility.Vector3dVector(verts.astype(float))
         mesh.triangles = o3d.utility.Vector3iVector(faces.astype(np.int32))
-        mesh.vertex_colors = o3d.utility.Vector3dVector(colors / 255.0)
+        mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
         # 这里把颜色也加进去了，如果不要颜色的话，就 mesh.vertex_colors = o3d.utility.Vector3dVector(0.5)
         return mesh
 
     def get_normals(self):
         """Compute normal volume"""
-        nx, ny, nz = self.vol_dim
+        nx, ny, nz = self.vol_dim_
         device = self.device
         # dx = torch.cat([torch.zeros(1, ny, nz).to(device), (self.tsdf_vol[2:, :, :] - self.tsdf_vol[:-2, :, :]) / (2 * self.voxel_size), torch.zeros(1, ny, nz).to(device)], dim=0)
         # dy = torch.cat([torch.zeros(nx, 1, nz).to(device), (self.tsdf_vol[:, 2:, :] - self.tsdf_vol[:, :-2, :]) / (2 * self.voxel_size), torch.zeros(nx, 1, nz).to(device)], dim=1)
@@ -237,9 +252,11 @@ class TSDFVolumeTorch:
         vox_coord = torch.floor(vox_coord_float)
         vox_offset = vox_coord_float - vox_coord  # [N, 3]
         vox_coord[vox_offset >= 0.5] += 1.0
-        vox_coord[:, 0] = torch.clamp(vox_coord[:, 0], 0.0, self.vol_dim[0] - 1)
-        vox_coord[:, 1] = torch.clamp(vox_coord[:, 1], 0.0, self.vol_dim[1] - 1)
-        vox_coord[:, 2] = torch.clamp(vox_coord[:, 2], 0.0, self.vol_dim[2] - 1)
+
+        # 将input的值限制在[min, max]之间
+        vox_coord[:, 0] = torch.clamp(vox_coord[:, 0], 0.0, self.vol_dim_[0] - 1)
+        vox_coord[:, 1] = torch.clamp(vox_coord[:, 1], 0.0, self.vol_dim_[1] - 1)
+        vox_coord[:, 2] = torch.clamp(vox_coord[:, 2], 0.0, self.vol_dim_[2] - 1)
         vox_coord = vox_coord.long()
         vx, vy, vz = vox_coord[:, 0], vox_coord[:, 1], vox_coord[:, 2]
         v_nn = field_vol[vx, vy, vz]
@@ -406,10 +423,13 @@ class TSDFVolumeTorch:
         return depth_rend, color_rend, vertex_rend, normal_rend, hit_surface_mask
 
     def render_pyramid(self, c2w, intri, imh, imw, n_pyr=4, near=0.5, far=5.0, n_samples=192):
+        """
+        NOTE: 这是一个不知道干什么的函数，从没有被使用过，原始代码有 bug
+        """
         K = intri.clone()
         dep_pyr, rgb_pyr, vtx_pyr, nrm_pyr, mask_pyr = [], [], [], [], []
         for l in range(n_pyr):
-            dep, rgb, feat, vtx, nrm, mask = self.render_model(c2w, K, imh, imw, near=near, far=far, n_samples=n_samples)
+            dep, rgb, vtx, nrm, mask = self.render_model(c2w, K, imh, imw, near=near, far=far, n_samples=n_samples)
             dep_pyr += [dep]
             rgb_pyr += [rgb]
             vtx_pyr += [vtx]
