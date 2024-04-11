@@ -13,6 +13,10 @@ from tqdm import tqdm
 
 
 def get_calib():
+    """
+    相机内参
+    数据来源：https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats
+    """
     # fx, fy, cx, cy
     return {
         "fr1": [517.306408, 516.469215, 318.643040, 255.313989],
@@ -26,13 +30,15 @@ def load_K_Rt_from_P(P):
     """
     modified from IDR https://github.com/lioryariv/idr
     """
+    # 分解投影矩阵(3x4) 定义详见 https://amroamroamro.github.io/mexopencv/matlab/cv.decomposeProjectionMatrix.html
     out = cv2.decomposeProjectionMatrix(P)
-    K = out[0]
-    R = out[1]
-    t = out[2]  # 4x1
+    K = out[0]  # 内参矩阵 3x3
+    R = out[1]  # 旋转矩阵 3x3
+    t = out[2]  # 平移向量 4x1
 
+    # 归一化 K
     K = K / K[2, 2]
-    intrinsics = np.eye(4)
+    intrinsics = np.eye(4)  # NOTE: 这里的内参矩阵给的 4x4 形式，只有左上角 3x3 有效
     intrinsics[:3, :3] = K
 
     pose = np.eye(4, dtype=np.float32)
@@ -89,16 +95,20 @@ class TUMDataset(torch.utils.data.Dataset):
             if 0 < end < i:
                 break
 
+            # 这里从 3x4 的投影矩阵 world_mat 中提取内参矩阵和外参矩阵
             intrinsics, c2w = load_K_Rt_from_P(world_mat)
             c2w = torch.tensor(c2w, dtype=torch.float32)
             # read images
             rgb = np.array(imageio.imread(path.join(data_path, "rgb/{:04d}.png".format(i)))).astype(np.float32)
             depth = np.array(imageio.imread(path.join(data_path, "depth/{:04d}.png".format(i)))).astype(np.float32)
 
-            # NOTE: 深度值除以一个因数
+            # NOTE: 深度值除以一个因数，让深度为 1 时，实际距离为 1 米。
+            # 数据来源：https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats
             depth /= 5000.0  # TODO: put depth factor to args
             d_max += [depth.max()]
             d_min += [depth.min()]
+
+            # [这是合并的别人的注释，不明觉厉] 双边滤波 但想了想又不滤了 因为后面要用原始深度图来重构 滤波后的图片用于相机轨迹估计
             # depth = cv2.bilateralFilter(depth, 5, 0.2, 15)
             # print(depth[depth > 0.].min())
 

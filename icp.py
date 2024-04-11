@@ -315,6 +315,12 @@ def invH(H):
     """
     # GPU is much slower for matrix inverse when the size is small (compare to CPU)
     # works (50x faster) than inversing the dense matrix in GPU
+
+    # from: https://github.com/1696762169/KinectFusionExample/blob/master/icp.py#L286-L288
+    if torch.det(H) == 0:
+        print("Hessian is not invertible")
+        return torch.zeros_like(H)
+
     if H.is_cuda:
         invH = torch.inverse(H.cpu()).cuda()
     else:

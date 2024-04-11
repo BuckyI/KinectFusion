@@ -42,7 +42,13 @@ def load_config(args):
 
 
 def get_volume_setting(args):
-    "读取 args 设置中关于体素的设置，返回TSDF的尺寸(int)、原点、体素大小"
+    """读取 args 设置中关于体素的设置，返回TSDF的尺寸(int)、原点、体素大小
+    从配置文件中获取体素网格的设置
+    :return:
+        vol_dims: 体素网格各个维度的体素数量
+        vol_origin: 体素网格原点在世界坐标系下的坐标
+        voxel_size: 体素网格的体素大小（米）
+    """
     voxel_size = args.voxel_size
     vol_bnds = np.array(args.vol_bounds).reshape(3, 2)  # [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
     vol_dims = (vol_bnds[:, 1] - vol_bnds[:, 0]) // voxel_size + 1  # x, y, z 的长度（voxel 格数）

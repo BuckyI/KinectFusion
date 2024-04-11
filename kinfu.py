@@ -23,6 +23,8 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # device = torch.device("cpu")
+
+    # NOTE: 这里 image_scale=0.25 让输出的数据集图片变为原始图像的 1/4，作用应该是减小内存占用 / 图片处理时间
     dataset = TUMDatasetOnline(os.path.join(args.data_root), device, near=args.near, far=args.far, img_scale=0.25)
     H, W = dataset.H, dataset.W
 
@@ -58,6 +60,8 @@ if __name__ == "__main__":
 
     avg_time = np.array(t).mean()
     print("average processing time: {:f}s per frame, i.e. {:f} fps".format(avg_time, 1.0 / avg_time))
+
+    # 以下是评估相机位姿估计效果的代码
     # compute tracking ATE
     poses_gt = np.stack(poses_gt, 0)
     poses = np.stack(poses, 0)
@@ -71,6 +75,7 @@ if __name__ == "__main__":
     # plt.show()
 
     # save results
+    # 保存重构的模型与相机位姿
     if args.save_dir is not None:
         if not os.path.exists(args.save_dir):
             os.makedirs(args.save_dir)

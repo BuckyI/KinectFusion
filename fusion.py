@@ -1,26 +1,27 @@
 import os
-import numpy as np
-from skimage import measure
-import torch
+
 import cv2
-import open3d as o3d
 import imageio
+import numpy as np
+import open3d as o3d
+import torch
+from skimage import measure
 
 
 def integrate(
-        depth_im,
-        cam_intr,
-        cam_pose,
-        obs_weight,
-        world_c,  # world coordinates grid [nx*ny*nz, 4]
-        vox_coords,  # voxel coordinates grid [nx*ny*nz, 3]
-        weight_vol,  # weight volume [nx, ny, nz]
-        tsdf_vol,  # tsdf volume [nx, ny, nz]
-        sdf_trunc,
-        im_h,
-        im_w,
-        color_vol=None,
-        color_im=None,
+    depth_im,
+    cam_intr,
+    cam_pose,
+    obs_weight,
+    world_c,  # world coordinates grid [nx*ny*nz, 4]
+    vox_coords,  # voxel coordinates grid [nx*ny*nz, 3]
+    weight_vol,  # weight volume [nx, ny, nz]
+    tsdf_vol,  # tsdf volume [nx, ny, nz]
+    sdf_trunc,
+    im_h,
+    im_w,
+    color_vol=None,
+    color_im=None,
 ):
 
     world2cam = torch.inverse(cam_pose)
@@ -43,7 +44,9 @@ def integrate(
     # Integrate tsdf
     depth_diff = depth_val - pix_z[valid_pix]
     dist = torch.clamp(depth_diff / sdf_trunc, max=1)
-    valid_pts = (depth_val > 0.) & (depth_diff >= -sdf_trunc)  # all points 1. inside frustum 2. with valid depth 3. outside -truncate_dist
+    valid_pts = (depth_val > 0.0) & (
+        depth_diff >= -sdf_trunc
+    )  # all points 1. inside frustum 2. with valid depth 3. outside -truncate_dist
     valid_vox_x = valid_vox_x[valid_pts]
     valid_vox_y = valid_vox_y[valid_pts]
     valid_vox_z = valid_vox_z[valid_pts]
@@ -58,7 +61,9 @@ def integrate(
         old_color = color_vol[valid_vox_x, valid_vox_y, valid_vox_z]
         new_color = color_im[pix_y[valid_pix], pix_x[valid_pix]]
         new_color = new_color[valid_pts]
-        color_vol[valid_vox_x, valid_vox_y, valid_vox_z, :] = (w_old[:, None] * old_color + obs_weight * new_color) / w_new[:, None]
+        color_vol[valid_vox_x, valid_vox_y, valid_vox_z, :] = (w_old[:, None] * old_color + obs_weight * new_color) / w_new[
+            :, None
+        ]
 
     return weight_vol, tsdf_vol, color_vol
 
@@ -79,7 +84,7 @@ class TSDFVolumeTorch:
         self.device = device
         # Define voxel volume parameters
         self.voxel_size = float(voxel_size)
-        self.sdf_trunc = margin * self.voxel_size
+        self.sdf_trunc = margin * self.voxel_size  # TSDF的截断距离 理论上至少为2倍的voxel_size
         self.integrate_func = integrate
         self.fuse_color = fuse_color
 
@@ -107,14 +112,15 @@ class TSDFVolumeTorch:
 
         # Convert voxel coordinates to world coordinates
         self.world_c = self.vol_origin + (self.voxel_size * self.vox_coords)
-        self.world_c = torch.cat([
-            self.world_c, torch.ones(len(self.world_c), 1, device=self.device)], dim=1).float()
+        self.world_c = torch.cat([self.world_c, torch.ones(len(self.world_c), 1, device=self.device)], dim=1).float()
+        # 最后得到的world_c是一个nx*ny*nz*4的矩阵 每个元素是一个4维向量 表示该体素在世界坐标系下的齐次坐标
         self.reset()
 
     def reset(self):
-        """Set volumes
-        """
-        self.tsdf_vol = torch.ones(*self.vol_dim).to(self.device)
+        """Set volumes"""
+        # self.tsdf_vol是当前计算得到的全局TSDF
+        self.tsdf_vol = torch.ones(*self.vol_dim).to(self.device)  # *self.vol_dim表示将vol_dim这个list解包成3个参数传入
+        # self.weight_vol是当前计算得到的全局权重
         self.weight_vol = torch.zeros(*self.vol_dim).to(self.device)
         if self.fuse_color:
             # [nx, ny, nz, 3]
@@ -127,7 +133,7 @@ class TSDFVolumeTorch:
             data = torch.from_numpy(data)
         return data.float().to(self.device)
 
-    @torch.no_grad()
+    @torch.no_grad()  # 该装饰器表示该函数不会自动进行梯度计算 毕竟我们这里也不需要梯度计算
     def integrate(self, depth_im, cam_intr, cam_pose, obs_weight, color_img=None):
         """Integrate an RGB-D frame into the TSDF volume.
         Args:
@@ -156,7 +162,8 @@ class TSDFVolumeTorch:
             self.weight_vol,
             self.tsdf_vol,
             self.sdf_trunc,
-            im_h, im_w,
+            im_h,
+            im_w,
             self.color_vol,
             color_img,
         )
@@ -168,8 +175,7 @@ class TSDFVolumeTorch:
         return self.tsdf_vol, self.weight_vol, self.color_vol
 
     def get_mesh(self):
-        """Compute a mesh from the voxel volume using marching cubes.
-        """
+        """Compute a mesh from the voxel volume using marching cubes."""
         tsdf_vol, weight_vol, color_vol = self.get_volume()
         verts, faces, norms, vals = measure.marching_cubes(tsdf_vol.cpu().numpy(), level=0)
         verts_ind = np.round(verts).astype(int)
@@ -182,32 +188,41 @@ class TSDFVolumeTorch:
             return verts, faces, norms
 
     def to_o3d_mesh(self):
-        """Convert to o3d mesh object for visualization
-        """
+        """Convert to o3d mesh object for visualization"""
         verts, faces, norms, colors = self.get_mesh()
+        # verts, faces, norms = self.get_mesh()
         mesh = o3d.geometry.TriangleMesh()
         mesh.vertices = o3d.utility.Vector3dVector(verts.astype(float))
         mesh.triangles = o3d.utility.Vector3iVector(faces.astype(np.int32))
-        mesh.vertex_colors = o3d.utility.Vector3dVector(colors / 255.)
+        mesh.vertex_colors = o3d.utility.Vector3dVector(colors / 255.0)
+        # 这里把颜色也加进去了，如果不要颜色的话，就 mesh.vertex_colors = o3d.utility.Vector3dVector(0.5)
         return mesh
 
     def get_normals(self):
-        """Compute normal volume
-        """
+        """Compute normal volume"""
         nx, ny, nz = self.vol_dim
         device = self.device
         # dx = torch.cat([torch.zeros(1, ny, nz).to(device), (self.tsdf_vol[2:, :, :] - self.tsdf_vol[:-2, :, :]) / (2 * self.voxel_size), torch.zeros(1, ny, nz).to(device)], dim=0)
         # dy = torch.cat([torch.zeros(nx, 1, nz).to(device), (self.tsdf_vol[:, 2:, :] - self.tsdf_vol[:, :-2, :]) / (2 * self.voxel_size), torch.zeros(nx, 1, nz).to(device)], dim=1)
         # dz = torch.cat([torch.zeros(nx, ny, 1).to(device), (self.tsdf_vol[:, :, 2:] - self.tsdf_vol[:, :, :-2]) / (2 * self.voxel_size), torch.zeros(nx, ny, 1).to(device)], dim=2)
         # norms = torch.stack([dx, dy, dz], -1)
-        dx = torch.cat([(self.tsdf_vol[1:, :, :] - self.tsdf_vol[:-1, :, :]) / self.voxel_size, torch.zeros(1, ny, nz).to(device)], dim=0)
-        dy = torch.cat([(self.tsdf_vol[:, 1:, :] - self.tsdf_vol[:, :-1, :]) / self.voxel_size, torch.zeros(nx, 1, nz).to(device)], dim=1)
-        dz = torch.cat([(self.tsdf_vol[:, :, 1:] - self.tsdf_vol[:, :, :-1]) / self.voxel_size, torch.zeros(nx, ny, 1).to(device)], dim=2)
+        dx = torch.cat(
+            [(self.tsdf_vol[1:, :, :] - self.tsdf_vol[:-1, :, :]) / self.voxel_size, torch.zeros(1, ny, nz).to(device)],
+            dim=0,
+        )
+        dy = torch.cat(
+            [(self.tsdf_vol[:, 1:, :] - self.tsdf_vol[:, :-1, :]) / self.voxel_size, torch.zeros(nx, 1, nz).to(device)],
+            dim=1,
+        )
+        dz = torch.cat(
+            [(self.tsdf_vol[:, :, 1:] - self.tsdf_vol[:, :, :-1]) / self.voxel_size, torch.zeros(nx, ny, 1).to(device)],
+            dim=2,
+        )
         norms = torch.stack([dx, dy, dz], -1)
         n = torch.norm(norms, dim=-1)
         # remove large values
-        outliers_mask = n > 1. / (2 * self.voxel_size)
-        norms[outliers_mask] = 0.
+        outliers_mask = n > 1.0 / (2 * self.voxel_size)
+        norms[outliers_mask] = 0.0
         # normalize
         eps = 1e-7
         non_zero_grad = n > eps
@@ -215,42 +230,48 @@ class TSDFVolumeTorch:
         return norms  # [nx, ny, nz, 3]
 
     def get_nn(self, field_vol, coords_w):
-        """Get nearest-neigbor values from a given volume
-        """
+        """Get nearest-neigbor values from a given volume"""
         field_dim = field_vol.shape
         assert len(field_dim) == 3 or len(field_dim) == 4
         vox_coord_float = (coords_w - self.vol_origin[None, :]) / self.voxel_size
         vox_coord = torch.floor(vox_coord_float)
         vox_offset = vox_coord_float - vox_coord  # [N, 3]
-        vox_coord[vox_offset >= 0.5] += 1.
-        vox_coord[:, 0] = torch.clamp(vox_coord[:, 0], 0., self.vol_dim[0] - 1)
-        vox_coord[:, 1] = torch.clamp(vox_coord[:, 1], 0., self.vol_dim[1] - 1)
-        vox_coord[:, 2] = torch.clamp(vox_coord[:, 2], 0., self.vol_dim[2] - 1)
+        vox_coord[vox_offset >= 0.5] += 1.0
+        vox_coord[:, 0] = torch.clamp(vox_coord[:, 0], 0.0, self.vol_dim[0] - 1)
+        vox_coord[:, 1] = torch.clamp(vox_coord[:, 1], 0.0, self.vol_dim[1] - 1)
+        vox_coord[:, 2] = torch.clamp(vox_coord[:, 2], 0.0, self.vol_dim[2] - 1)
         vox_coord = vox_coord.long()
         vx, vy, vz = vox_coord[:, 0], vox_coord[:, 1], vox_coord[:, 2]
         v_nn = field_vol[vx, vy, vz]
         return v_nn
 
     def tril_interp(self, field_vol, coords_w):
-        """Get tri-linear interpolated value from a given volume
-        """
+        """Get tri-linear interpolated value from a given volume"""
         field_dim = field_vol.shape
         assert len(field_dim) == 3 or len(field_dim) == 4
         n_pts = coords_w.shape[0]
         vox_coord = torch.floor((coords_w - self.vol_origin[None, :]) / self.voxel_size).long()  # [N, 3]
 
         # for border points, don't do interpolation
-        non_border_mask = (vox_coord[:, 0] < self.vol_dim[0] - 1) & (vox_coord[:, 1] < self.vol_dim[1] - 1) & \
-                          (vox_coord[:, 2] < self.vol_dim[2] - 1)
+        non_border_mask = (
+            (vox_coord[:, 0] < self.vol_dim[0] - 1)
+            & (vox_coord[:, 1] < self.vol_dim[1] - 1)
+            & (vox_coord[:, 2] < self.vol_dim[2] - 1)
+        )
         v_interp = torch.zeros(n_pts) if len(field_dim) == 3 else torch.zeros(n_pts, field_vol.shape[-1])
         v_interp = v_interp.to(self.device)
+        # 获取边界外元素的索引
         vx_, vy_, vz_ = vox_coord[~non_border_mask, 0], vox_coord[~non_border_mask, 1], vox_coord[~non_border_mask, 2]
+        # 这里是将边界外不需要插值的元素直接设为上次计算得到的元素值
+        # field_vol[vx_, vy_, vz_] 使用了高级索引 将三个一维向量中相同索引的元素组合成一个三维索引值 最后返回的是一维索引
         v_interp[~non_border_mask] = field_vol[vx_, vy_, vz_]
 
         # get interpolated values for normal points
         vx, vy, vz = vox_coord[non_border_mask, 0], vox_coord[non_border_mask, 1], vox_coord[non_border_mask, 2]  # [N]
         vox_idx = vz + vy * self.vol_dim[-1] + vx * self.vol_dim[-1] * self.vol_dim[-2]
+        # 获取体素的标准位置
         vertices_coord = self.world_c[vox_idx][:, :3]  # [N, 3]
+        # 利用实际位置减去体素标准位置 获取插值权重
         r = (coords_w[non_border_mask] - vertices_coord) / self.voxel_size
         rx, ry, rz = r[:, 0], r[:, 1], r[:, 2]
         if len(field_dim) == 4:
@@ -258,35 +279,44 @@ class TSDFVolumeTorch:
             ry = ry.unsqueeze(1)
             rz = rz.unsqueeze(1)
         # get values at eight corners
+        # 这里进行线性插值 v000等还是一维变量 因为要同时对所有位置进行插值运算
         v000 = field_vol[vx, vy, vz]
-        v001 = field_vol[vx, vy, vz+1]
-        v010 = field_vol[vx, vy+1, vz]
-        v011 = field_vol[vx, vy+1, vz+1]
-        v100 = field_vol[vx+1, vy, vz]
-        v101 = field_vol[vx+1, vy, vz+1]
-        v110 = field_vol[vx+1, vy+1, vz]
-        v111 = field_vol[vx+1, vy+1, vz+1]
-        v_interp[non_border_mask] = v000 * (1 - rx) * (1 - ry) * (1 - rz) \
-                                   + v001 * (1 - rx) * (1 - ry) * rz \
-                                   + v010 * (1 - rx) * ry * (1 - rz) \
-                                   + v011 * (1 - rx) * ry * rz \
-                                   + v100 * rx * (1 - ry) * (1 - rz) \
-                                   + v101 * rx * (1 - ry) * rz \
-                                   + v110 * rx * ry * (1 - rz) \
-                                   + v111 * rx * ry * rz
+        v001 = field_vol[vx, vy, vz + 1]
+        v010 = field_vol[vx, vy + 1, vz]
+        v011 = field_vol[vx, vy + 1, vz + 1]
+        v100 = field_vol[vx + 1, vy, vz]
+        v101 = field_vol[vx + 1, vy, vz + 1]
+        v110 = field_vol[vx + 1, vy + 1, vz]
+        v111 = field_vol[vx + 1, vy + 1, vz + 1]
+        v_interp[non_border_mask] = (
+            v000 * (1 - rx) * (1 - ry) * (1 - rz)
+            + v001 * (1 - rx) * (1 - ry) * rz
+            + v010 * (1 - rx) * ry * (1 - rz)
+            + v011 * (1 - rx) * ry * rz
+            + v100 * rx * (1 - ry) * (1 - rz)
+            + v101 * rx * (1 - ry) * rz
+            + v110 * rx * ry * (1 - rz)
+            + v111 * rx * ry * rz
+        )
 
         return v_interp
 
     def get_pts_inside(self, pts, margin=0):
+        """通过体素坐标获取在考虑范围内的检测点"""
         vox_coord = torch.floor((pts - self.vol_origin[None, :]) / self.voxel_size).long()  # [N, 3]
-        valid_pts_mask = (vox_coord[..., 0] >= margin) & (vox_coord[..., 0] < self.vol_dim[0] - margin) \
-                         & (vox_coord[..., 1] >= margin) & (vox_coord[..., 1] < self.vol_dim[1] - margin) \
-                         & (vox_coord[..., 2] >= margin) & (vox_coord[..., 2] < self.vol_dim[2] - margin)
+        valid_pts_mask = (
+            (vox_coord[..., 0] >= margin)
+            & (vox_coord[..., 0] < self.vol_dim[0] - margin)
+            & (vox_coord[..., 1] >= margin)
+            & (vox_coord[..., 1] < self.vol_dim[1] - margin)
+            & (vox_coord[..., 2] >= margin)
+            & (vox_coord[..., 2] < self.vol_dim[2] - margin)
+        )
         return valid_pts_mask
 
     # use simple root finding
     @torch.no_grad()
-    def render_model(self, c2w, intri, imh, imw, near=0.5, far=5., n_samples=192):
+    def render_model(self, c2w, intri, imh, imw, near=0.5, far=5.0, n_samples=192):
         """
         Perform ray-casting for frame-to-model tracking
         :param c2w: camera pose, [4, 4]
@@ -299,8 +329,12 @@ class TSDFVolumeTorch:
         :return: rendered depth, color, vertex, normal and valid mask, [H, W, C]
         """
         rays_o, rays_d = self.get_rays(c2w, intri, imh, imw)  # [h, w, 3]
+        # 采样距离
         z_vals = torch.linspace(near, far, n_samples).to(rays_o)  # [n_samples]
-        ray_pts_w = (rays_o[:, :, None, :] + rays_d[:, :, None, :] * z_vals[None, None, :, None]).to(self.device)  # [h, w, n_samples, 3]
+        # 所有射线的所有采样点 [:, :, None, :]这种东西表示增加一个维度
+        ray_pts_w = (rays_o[:, :, None, :] + rays_d[:, :, None, :] * z_vals[None, None, :, None]).to(
+            self.device
+        )  # [h, w, n_samples, 3]
 
         # need to query the tsdf and feature grid
         tsdf_vals = torch.ones(imh, imw, n_samples).to(self.device)
@@ -310,19 +344,29 @@ class TSDFVolumeTorch:
         tsdf_vals[valid_ray_pts_mask] = self.tril_interp(self.tsdf_vol, valid_ray_pts)
 
         # surface prediction by finding zero crossings
-        sign_matrix = torch.cat([torch.sign(tsdf_vals[..., :-1] * tsdf_vals[..., 1:]),
-                                 torch.ones(imh, imw, 1).to(self.device)], dim=-1)  # [h, w, n_samples]
-        cost_matrix = sign_matrix * torch.arange(n_samples, 0, -1).float().to(self.device)[None, None, :]  # [h, w, n_samples]
+        sign_matrix = torch.cat(
+            [
+                torch.sign(
+                    tsdf_vals[..., :-1] * tsdf_vals[..., 1:]
+                ),  # 将相邻元素相乘并判断积的正负 以此判断是否发生了符号反转
+                torch.ones(imh, imw, 1).to(self.device),
+            ],
+            dim=-1,
+        )  # [h, w, n_samples]
+        cost_matrix = (
+            sign_matrix * torch.arange(n_samples, 0, -1).float().to(self.device)[None, None, :]
+        )  # [h, w, n_samples]
         # Get first sign change and mask for values where
         # a.) a sign changed occurred and
         # b.) not a neg to pos sign change occurred
         # c.) ignore border points
         values, indices = torch.min(cost_matrix, -1)
-        mask_sign_change = values < 0
+        mask_sign_change = values < 0  # sign小于零表示相邻的值发生了符号反转
         hs, ws = torch.meshgrid(torch.arange(imh), torch.arange(imw))
-        mask_pos_to_neg = tsdf_vals[hs, ws, indices] > 0
-        inside_vol = self.get_pts_inside(ray_pts_w[hs, ws, indices])
+        mask_pos_to_neg = tsdf_vals[hs, ws, indices] > 0  # 获取从正到负的符号反转 即从体外到体内
+        inside_vol = self.get_pts_inside(ray_pts_w[hs, ws, indices])  # 判断范围是否合法
         hit_surface_mask = mask_sign_change & mask_pos_to_neg & inside_vol
+        # 最后得到每条光线命中的世界坐标（也可能没命中）
         hit_pts = ray_pts_w[hs, ws, indices][hit_surface_mask]  # [n_surf_pts, 3]
 
         # compute normals
@@ -361,7 +405,7 @@ class TSDFVolumeTorch:
 
         return depth_rend, color_rend, vertex_rend, normal_rend, hit_surface_mask
 
-    def render_pyramid(self, c2w, intri, imh, imw, n_pyr=4, near=0.5, far=5., n_samples=192):
+    def render_pyramid(self, c2w, intri, imh, imw, n_pyr=4, near=0.5, far=5.0, n_samples=192):
         K = intri.clone()
         dep_pyr, rgb_pyr, vtx_pyr, nrm_pyr, mask_pyr = [], [], [], [], []
         for l in range(n_pyr):
@@ -392,6 +436,7 @@ class TSDFVolumeTorch:
         return vox_idx.long()
 
     def get_rays(self, c2w, intrinsics, H, W):
+        """构造从相机射向每个像素的光线"""
         device = self.device
         c2w = c2w.to(device)
         fx = intrinsics[0, 0]
@@ -399,13 +444,17 @@ class TSDFVolumeTorch:
         cx = intrinsics[0, 2]
         cy = intrinsics[1, 2]
 
-        i, j = torch.meshgrid(torch.linspace(0, W - 1, W), torch.linspace(0, H - 1, H))  # pytorch's meshgrid has indexing='ij'
+        i, j = torch.meshgrid(
+            torch.linspace(0, W - 1, W), torch.linspace(0, H - 1, H)
+        )  # pytorch's meshgrid has indexing='ij'
         i = i.t().to(device).reshape(H * W)  # [hw]
         j = j.t().to(device).reshape(H * W)  # [hw]
 
+        # 构造相机坐标系下的方向向量
         dirs = torch.stack([(i - cx) / fx, (j - cy) / fy, torch.ones_like(i)], -1).to(device)  # [hw, 3]
         # permute for bmm
         dirs = dirs.transpose(1, 0)  # [3, hw]
+        # 变换到世界坐标系下
         rays_d = (c2w[:3, :3] @ dirs).transpose(1, 0)  # [hw, 3]
         rays_o = c2w[:3, 3].expand(rays_d.shape)
 

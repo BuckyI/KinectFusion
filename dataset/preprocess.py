@@ -66,22 +66,26 @@ def associate(first_list, second_list, offset=0.0, max_difference=0.02):
     """
     first_keys = list(first_list)
     second_keys = list(second_list)
+    # 暴力枚举找出可能匹配的帧
     potential_matches = [
         (abs(a - (b + offset)), a, b) for a in first_keys for b in second_keys if abs(a - (b + offset)) < max_difference
     ]
+    # 按照差值大小排序 尽可能找出最匹配的帧
     potential_matches.sort()
+    # 去重
     matches = []
     for diff, a, b in potential_matches:
         if a in first_keys and b in second_keys:
             first_keys.remove(a)
             second_keys.remove(b)
             matches.append((a, b))
-
+    # 按照时间戳排序
     matches.sort()
     return matches
 
 
 def get_association(file_a, file_b, out_file):
+    """生成关联文件 将两个文件中的时间戳对齐 可以嵌套使用"""
     first_list = read_file_list(file_a)
     second_list = read_file_list(file_b)
     matches = associate(first_list, second_list)
@@ -106,6 +110,7 @@ def tum2matrix(pose):
     if n < np.finfo(np.float64).eps:
         return np.identity(4)
 
+    # 这里是四元数转旋转矩阵的公式 和位移向量组合成齐次变换矩阵
     q *= math.sqrt(2.0 / n)
     q = np.outer(q, q)
     return np.array(
@@ -142,6 +147,8 @@ if __name__ == "__main__":
     out_dir = os.path.join(args.data_root, "processed")
 
     # create association files
+    # 新生成的文件中包含RGB图像文件名、深度图像文件名、相机位姿三者的匹配结果
+    # 因为位姿采样频率较高，所以先匹配RGB图像和深度图像
     get_association(
         os.path.join(args.data_root, "depth.txt"),
         os.path.join(args.data_root, "groundtruth.txt"),
@@ -179,9 +186,14 @@ if __name__ == "__main__":
             )
             poses += [tum2matrix([float(x) for x in line_list[5:]])]
 
+    # 存储每一帧的相机位姿（齐次矩阵形式）
     np.savez(os.path.join(out_dir, "raw_poses.npz"), c2w_mats=poses)
 
     # save projection matrices
+    # K是相机内参矩阵 格式如下 其作用是将三维坐标变换到相机的成像平面上
+    # K = [[fx, 0, cx],
+    #      [0, fy, cy],
+    #      [0, 0, 1]]
     K = np.eye(3)
     intri = get_calib()[args.data_type]
     K[0, 0] = intri[0]
@@ -190,9 +202,13 @@ if __name__ == "__main__":
     K[1, 2] = intri[3]
     camera_dict = np.load(os.path.join(out_dir, "raw_poses.npz"))
     poses = camera_dict["c2w_mats"]
+
+    # 以下计算投影矩阵 投影矩阵将三维坐标变换到当前相机坐标系下的二维坐标
     P_mats = []
     for c2w in poses:
-        w2c = np.linalg.inv(c2w)
-        P = K @ w2c[:3, :]
+        w2c = np.linalg.inv(c2w)  # 4x4 外参矩阵 只取前三行 最后一行所表示的透视除法已经隐式地完成了
+        P = K @ w2c[:3, :]  # 投影矩阵 3x4 = 内参矩阵 3x3 @ 外参矩阵 3x4
         P_mats += [P]
+
+    # 存储每一帧的投影矩阵
     np.savez(os.path.join(out_dir, "cameras.npz"), world_mats=P_mats)

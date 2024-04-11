@@ -16,15 +16,16 @@ class ICPTracker(nn.Module):
     ):
 
         super(ICPTracker, self).__init__()
-        self.n_pyr = args.n_pyramids
+        self.n_pyr = args.n_pyramids  # 图像金字塔层数
         self.scales = list(range(self.n_pyr))
-        self.n_iters = args.n_iters
+        self.n_iters = args.n_iters  # 每层金字塔迭代次数
         self.dampings = args.dampings
-        self.construct_image_pyramids = ImagePyramids(self.scales, pool="avg")
-        self.construct_depth_pyramids = ImagePyramids(self.scales, pool="max")
+        self.construct_image_pyramids = ImagePyramids(self.scales, pool="avg")  # 构建图像金字塔
+        self.construct_depth_pyramids = ImagePyramids(self.scales, pool="max")  # 构建深度图金字塔
         self.device = device
         # initialize tracker at different levels
         self.icp_solvers = []
+        # 逐层迭代 从粗到细
         for i in range(self.n_pyr):
             self.icp_solvers += [ICP(self.n_iters[i], damping=self.dampings[i])]
 
@@ -50,18 +51,23 @@ class ImagePyramids(nn.Module):
 
     def __init__(self, scales, pool="avg"):
         super(ImagePyramids, self).__init__()
+        # 利用池化层构建图像金字塔
         if pool == "avg":
             # 1 << i 表示将 1 左移 i 位，获得 2^i 的值
             # NOTE: 该操作常用于图像处理中对图片进行快速尺度缩放，因为它比除法更快
             # nn.AvgPool2d(kernel_size, stride) 是2d平均池化
             # 这里 kernel_size 和 stride 均设为 2^i，表示这个大小的格子被平均池化为 1 个像素
-            self.multiscales = [nn.AvgPool2d(1 << i, 1 << i) for i in scales]
+            self.multiscales = [nn.AvgPool2d(1 << i, 1 << i) for i in scales]  # 取小区域图像的均值
         elif pool == "max":
-            self.multiscales = [nn.MaxPool2d(1 << i, 1 << i) for i in scales]
+            self.multiscales = [nn.MaxPool2d(1 << i, 1 << i) for i in scales]  # 取小区域图像的最大值
         else:
             raise NotImplementedError()
 
     def forward(self, x):
+        """
+        此函数用于前向传播
+        此处调用所有池化层的forward函数 生成图像金字塔
+        """
         # NOTE: 这里 AvgPool2d / MaxPool2d 的输入 x 应为 (N, C, H, W) 形式
         if x.dtype == torch.bool:
             x = x.to(torch.float32)
@@ -72,7 +78,8 @@ class ImagePyramids(nn.Module):
 
 
 def get_scaled_K(K, l):
-    "对 K（intrinsic matric）进行缩小"
+    """对 K（intrinsic matric）进行缩小
+    将相机内参矩阵K按照图像金字塔的层数l进行缩放"""
     if l != 0:
         Ks = K.clone()
         Ks[0, 0] /= 2**l
