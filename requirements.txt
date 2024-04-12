@@ -3,3 +3,4 @@ trimesh
 scikit-image
 imageio
 opencv-python
+loguru
