@@ -49,6 +49,9 @@ class KinectDataset:
         if sample_timestep == -1:
             self.sample_timestep = round(1 / self.record_config.fps * 1e6)
 
+        # timestamp of the first frame
+        self.current_timestamp: int = 0
+
     def get_record_config(self) -> RecordConfig:
         video_length = self.playback.get_recording_length()
         playback_config = self.playback.get_record_configuration()
@@ -79,33 +82,11 @@ class KinectDataset:
         return RecordConfig(width, height, intrinsics, video_length, camera_fps)
 
     def __iter__(self):
-        playback = self.playback
-        current_timestamp = 0
-        while 0 <= current_timestamp <= playback.get_recording_length():
-            playback.seek_timestamp(current_timestamp)
-            res, capture = playback.update()
-            if not res:
-                break
-
-            # load color and depth image, both in color shape
-            res1, depth = capture.get_transformed_depth_image()  # type: ignore
-            res2, color = capture.get_color_image()  # type: ignore
-            if not res1 or not res2:
-                logger.warning(f"unexpexted frame ({current_timestamp}), skip")
-                current_timestamp += self.sample_timestep
-                continue
-
-            assert isinstance(depth, np.ndarray) and isinstance(color, np.ndarray)  # for type hints
-
-            K = np.eye(3)
-            K[[0, 1, 0, 1], [0, 1, 2, 2]] = self.record_config.intrinsics
-
-            raw_frame = Frame(current_timestamp, depth, color, K)
-            frame = self.preprocess_frame(raw_frame)
-            yield frame
-
-            current_timestamp += self.sample_timestep
-        logger.info(f"no more frame, finished at timestamp {current_timestamp}")
+        self.current_timestamp: int = 0
+        while 0 <= self.current_timestamp <= self.playback.get_recording_length():
+            frame = self.get_next_frame()
+            if frame is not None:
+                yield frame
 
     def preprocess_frame(self, frame: Frame):
         depth, color, K = frame.depth, frame.color, frame.K
@@ -132,6 +113,36 @@ class KinectDataset:
         # depth1 = cv2.bilateralFilter(depth, 5, 0.2, 15)
 
         return Frame(frame.timestamp, depth, color, K)
+
+    def get_next_frame(self):
+        self.current_timestamp += self.sample_timestep
+
+        playback = self.playback
+        playback.seek_timestamp(self.current_timestamp)
+        res, capture = playback.update()
+        if not res:
+            logger.info(f"no more frame, finished at timestamp {self.current_timestamp}")
+            return None
+
+        # load color and depth image, both in color shape
+        res1, depth = capture.get_transformed_depth_image()  # type: ignore
+        res2, color = capture.get_color_image()  # type: ignore
+        if not res1 or not res2:
+            logger.warning(f"unexpexted frame ({self.current_timestamp}), skip")
+            return None
+
+        assert isinstance(depth, np.ndarray) and isinstance(color, np.ndarray)  # for type hints
+
+        K = np.eye(3)
+        K[[0, 1, 0, 1], [0, 1, 2, 2]] = self.record_config.intrinsics
+
+        raw_frame = Frame(self.current_timestamp, depth, color, K)
+        frame = self.preprocess_frame(raw_frame)
+        return frame
+
+    def __len__(self):
+        "estimated frame count"
+        return int(self.playback.get_recording_length() / 1e6 * self.record_config.fps)
 
 
 def visualize_frame(frame: Frame):
