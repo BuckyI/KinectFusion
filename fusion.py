@@ -200,7 +200,7 @@ class TSDFVolumeTorch:
             # NOTE: 源代码初始化时，设定了 fuse_color=True，所以返回值有 4 个
             assert len(result) == 4  # 给类型检查器确定
             verts, faces, norms, colors = result
-            colors /= 255.0  # [0, 255] -> [0, 1]
+            colors = colors / 255.0  # [0, 255] -> [0, 1]
         else:
             assert len(result) == 3  # 给类型检查器确定
             verts, faces, norms = result
