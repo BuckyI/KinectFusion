@@ -121,7 +121,7 @@ class KinectDataset:
             depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_NEAREST)
 
             # NOTE: 相机内参会随着图像尺寸同比缩小
-            K = K / self.scale
+            K[:2, :] = K[:2, :] * self.scale
 
         assert isinstance(depth, np.ndarray) and isinstance(color, np.ndarray)  # for type hints
         depth = depth.astype(np.float32) / 1000.0  # Kinect provides depth in millimeters, turn into meters.
