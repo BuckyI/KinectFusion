@@ -7,6 +7,7 @@ from typing import Optional
 import numpy as np
 import open3d as o3d
 import torch
+import trimesh
 from loguru import logger
 
 from dataset.azure_kinect import KinectDataset, visualize_frame
@@ -159,6 +160,15 @@ def get_view(vis):
     print(cam.extrinsic)
 
 
+def save_model(vis):
+    # verts, faces, norms, colors = vis_param.map.get_mesh()
+    # partial_tsdf = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=norms, vertex_colors=colors)
+    # partial_tsdf.export("mesh.ply")
+
+    mesh = vis_param.map.to_o3d_mesh()
+    o3d.io.write_triangle_mesh("mesh.ply", mesh)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/kinect.yaml", help="Path to config file.")
@@ -201,6 +211,7 @@ if __name__ == "__main__":
     vis.get_render_option().mesh_show_back_face = True
     # NOTE: use `refresh` to create animation, see: https://www.open3d.org/docs/latest/tutorial/Advanced/customized_visualization.html
     vis.register_animation_callback(callback_func=refresh)
+    vis.register_key_callback(83, save_model)  # 保存重建模型，83 is 'S'
 
     # 增加坐标轴
     coord_axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
