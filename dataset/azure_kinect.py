@@ -52,6 +52,10 @@ class KinectDataset:
         # timestamp of the first frame
         self.current_timestamp: int = 0
 
+    @property
+    def finished(self) -> bool:
+        return self.current_timestamp > self.playback.get_recording_length() or self.current_timestamp < 0
+
     def get_record_config(self) -> RecordConfig:
         video_length = self.playback.get_recording_length()
         playback_config = self.playback.get_record_configuration()
@@ -83,10 +87,11 @@ class KinectDataset:
 
     def __iter__(self):
         self.current_timestamp: int = 0
-        while 0 <= self.current_timestamp <= self.playback.get_recording_length():
+        while not self.finished:
             frame = self.get_next_frame()
             if frame is not None:
                 yield frame
+        logger.info(f"Finished loading dataset at timestamp {self.current_timestamp}")
 
     def preprocess_frame(self, frame: Frame):
         depth, color, K = frame.depth, frame.color, frame.K
@@ -121,7 +126,7 @@ class KinectDataset:
         playback.seek_timestamp(self.current_timestamp)
         res, capture = playback.update()
         if not res:
-            logger.info(f"no more frame, finished at timestamp {self.current_timestamp}")
+            logger.debug(f"failed to get frame at timestamp {self.current_timestamp}")
             return None
 
         # load color and depth image, both in color shape
