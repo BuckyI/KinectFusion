@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 from dataset.tum_rgbd import TUMDataset, TUMDatasetOnline
 from fusion import TSDFVolumeTorch
 from tracker import ICPTracker
-from utils import get_time, get_volume_setting, load_config
+from utils.utils import get_time, get_volume_setting, load_config
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

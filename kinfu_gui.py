@@ -9,7 +9,7 @@ import torch
 from dataset.tum_rgbd import TUMDataset, TUMDatasetOnline
 from fusion import TSDFVolumeTorch
 from tracker import ICPTracker
-from utils import get_time, get_volume_setting, load_config
+from utils.utils import get_time, get_volume_setting, load_config
 
 # 全局参数 感觉这里使用 dataclass 可读性会更强一点
 vis_param = argparse.Namespace()
@@ -141,7 +141,7 @@ def get_view(vis):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="configs/fr1_desk.yaml", help="Path to config file.")
+    parser.add_argument("--config", type=str, default="configs/my_config.yaml", help="Path to config file.")
     parser.add_argument("--follow_camera", action="store_true", help="Make view-point follow the camera motion")
     args = load_config(parser.parse_args())
 

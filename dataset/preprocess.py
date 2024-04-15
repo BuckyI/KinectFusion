@@ -23,7 +23,7 @@ from tum_rgbd import get_calib
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
-from utils import load_config
+from utils.utils import load_config
 
 
 def read_file_list(filename):
