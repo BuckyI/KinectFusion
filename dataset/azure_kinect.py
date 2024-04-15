@@ -141,6 +141,7 @@ class KinectDataset:
         K = np.eye(3)
         K[[0, 1, 0, 1], [0, 1, 2, 2]] = self.record_config.intrinsics
 
+        color = color[:, ::-1]  # BGR to RGB
         raw_frame = Frame(self.current_timestamp, depth, color, K)
         frame = self.preprocess_frame(raw_frame)
         return frame
