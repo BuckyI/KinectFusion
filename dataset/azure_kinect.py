@@ -117,6 +117,7 @@ class KinectDataset:
         # TODO: bilateral filter ?
         # depth1 = cv2.bilateralFilter(depth, 5, 0.2, 15)
 
+        color = cv2.cvtColor(color, cv2.COLOR_BGR2RGB)  # BGR to RGB
         return Frame(frame.timestamp, depth, color, K)
 
     def get_next_frame(self):
@@ -141,7 +142,6 @@ class KinectDataset:
         K = np.eye(3)
         K[[0, 1, 0, 1], [0, 1, 2, 2]] = self.record_config.intrinsics
 
-        color = color[:, ::-1]  # BGR to RGB
         raw_frame = Frame(self.current_timestamp, depth, color, K)
         frame = self.preprocess_frame(raw_frame)
         return frame
@@ -155,7 +155,7 @@ def visualize_frame(frame: Frame):
     """visualize the frame using matplotlib"""
     fig, axs = plt.subplots(1, 2, figsize=(12, 6))
     fig.suptitle("frame at timestamp {}".format(frame.timestamp))
-    axs[0].imshow(frame.color[:, :, ::-1], aspect="equal")  # bgr to rgb
+    axs[0].imshow(frame.color, aspect="equal")  # bgr to rgb
     axs[0].set_title("color")
     im = axs[1].imshow(frame.depth, cmap="coolwarm", aspect="equal")
     axs[1].set_title("depth")
