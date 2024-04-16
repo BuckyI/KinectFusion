@@ -29,12 +29,21 @@ class Frame(NamedTuple):
 
 class KinectDataset:
     def __init__(
-        self, video_path: str, *, sample_timestep: int = -1, scale: float = 1.0, near: float = 0.1, far: float = 5.0
+        self,
+        video_path: str,
+        *,
+        sample_timestep: int = -1,
+        scale: float = 1.0,
+        near: float = 0.1,
+        far: float = 5.0,
+        start: float = 0,
+        end: float = -1,
     ):
         """
         sample_timestep: sample frames every sample_timestep microseconds. -1 for all frames.
         scale: downsample image by scale. 1 for no downsample.
         near, far: valid depth range in meters, drop invalid values.
+        start, end: valid time range in seconds. end = -1 means end at the end of video.
         """
         assert Path(video_path).is_file() and video_path.endswith(".mkv"), "Invalid video: {}".format(video_path)
         self.video_path: str = video_path
@@ -42,19 +51,21 @@ class KinectDataset:
         self.scale: float = scale
         self.near: float = near
         self.far: float = far
+        self.start: int = int(max(0, start * 1e6))  # store as microsecond
 
         pykinect.initialize_libraries()
         self.playback = pykinect.start_playback(video_path)
         self.record_config = self.get_record_config()
         if sample_timestep == -1:
             self.sample_timestep = round(1 / self.record_config.fps * 1e6)
+        self.end: int = int(min(end * 1e6, self.playback.get_recording_length()))  # store as microsecond
 
         # timestamp of the first frame
-        self.current_timestamp: int = 0
+        self.current_timestamp: int = self.start
 
     @property
     def finished(self) -> bool:
-        return self.current_timestamp > self.playback.get_recording_length() or self.current_timestamp < 0
+        return self.current_timestamp > self.end or self.current_timestamp < self.start
 
     def get_record_config(self) -> RecordConfig:
         video_length = self.playback.get_recording_length()
@@ -86,7 +97,7 @@ class KinectDataset:
         return RecordConfig(width, height, intrinsics, video_length, camera_fps)
 
     def __iter__(self):
-        self.current_timestamp: int = 0
+        self.current_timestamp: int = self.start
         while not self.finished:
             frame = self.get_next_frame()
             if frame is not None:
@@ -148,7 +159,7 @@ class KinectDataset:
 
     def __len__(self):
         "estimated frame count"
-        return int(self.playback.get_recording_length() / 1e6 * self.record_config.fps)
+        return int((self.end - self.start) / 1e6 * self.record_config.fps)
 
 
 def visualize_frame(frame: Frame):

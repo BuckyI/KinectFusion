@@ -13,7 +13,7 @@ from loguru import logger
 from dataset.azure_kinect import KinectDataset, visualize_frame
 from fusion import TSDFVolumeTorch
 from tracker import ICPTracker
-from utils import get_time, get_volume_setting, load_config
+from utils.utils import get_time, get_volume_setting, load_config
 
 
 @dataclass
@@ -176,9 +176,14 @@ if __name__ == "__main__":
     args = load_config(parser.parse_args())
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = KinectDataset(os.path.join(args.video_path), scale=args.scale, near=args.near, far=args.far)
-    # START FROM 20s
-    dataset.current_timestamp = int(2e7)
+    dataset = KinectDataset(
+        os.path.join(args.video_path),
+        scale=args.scale,
+        near=args.near,
+        far=args.far,
+        start=args.start,
+        end=args.end,
+    )
 
     vol_dims, vol_origin, voxel_size = get_volume_setting(args)
     vis_param = State(
