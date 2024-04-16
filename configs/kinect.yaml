@@ -1,0 +1,18 @@
+video_path: "E:/3d-datasets/pig_kinect/20240414.mkv"
+# video_path: "E:/kinect-run/data/test.mkv"
+data_type: "kinect"
+
+scale: 0.3 # downsample image
+near: 0.1
+far: 5.0
+start: 0 # 跳过开头
+end: 131 # 跳过结尾
+
+vol_bounds: [-2, 2, -2, 2, 0.5, 2.5] # x_min, x_max, y_min, y_max, z_min, z_max
+voxel_size: 0.01 # 重建阶段体素尺寸 4cm
+n_pyramids: 3
+n_iters: [6, 3, 3]
+dampings: [1.0e-4, 1.0e-4, 1.0e-2]
+n_steps: 192
+
+early_stop: -1 # stop at frame ...
