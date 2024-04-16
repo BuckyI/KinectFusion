@@ -1,7 +1,7 @@
 import argparse
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
@@ -33,18 +33,23 @@ class State:
     current_camera: Optional[o3d.geometry.LineSet] = None  # # 用于可视化的相机 o3d.geometry.LineSet
     curr_pose: Optional[torch.Tensor] = None  # 当前相机位姿，利用 ray-casting 以及 ICP 计算得到
 
+    poses: list[tuple[int, torch.Tensor]] = field(default_factory=list)  # 记录历史位姿 (timestamp, pose)
+    finished: bool = False  # 用来标记整个重建流程是否结束，简化动画更新逻辑
+
 
 def refresh(vis):
+    if vis_param.finished:
+        return False
 
     if vis:
         # This spares slots for meshing thread to emit commands.
         # time.sleep(0.01)
         time.sleep(0.01)
 
-    if vis_param.frame_id == vis_param.args.early_stop:
-        return False
-    if vis_param.dataset.finished:
-        # logger.info("Finished!")
+    if vis_param.dataset.finished or vis_param.frame_id == vis_param.args.early_stop:
+        logger.info("Finished Construnction")
+        save_model(vis, False)  # 保存模型
+        vis_param.finished = True
         return False
 
     frame = vis_param.dataset.get_next_frame()  # 取出当前帧
@@ -80,6 +85,8 @@ def refresh(vis):
         # 我想了想，相机的 pose 是全局 I 到相机的变换（三个轴在全局坐标系中的位置）， T01 是 0 到 1 的变换
         # 那么当前 pose 应该是 T10 @ last_pose ? 因为全局的点先到 0，再到 1
         vis_param.curr_pose = vis_param.curr_pose @ T10
+
+    vis_param.poses.append((vis_param.dataset.current_timestamp, vis_param.curr_pose))  # 记录历史位姿
 
     # update view-point
     if vis_param.args.follow_camera:
@@ -160,16 +167,20 @@ def get_view(vis):
     print(cam.extrinsic)
 
 
-def save_model(vis):
+def save_model(vis, overwrite=False):
     # verts, faces, norms, colors = vis_param.map.get_mesh()
     # partial_tsdf = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=norms, vertex_colors=colors)
     # partial_tsdf.export("mesh.ply")
-
-    mesh = vis_param.map.to_o3d_mesh()
-    o3d.io.write_triangle_mesh("mesh.ply", mesh)
+    if overwrite or not (os.path.exists("mesh.ply") and os.path.exists("traj.pth")):
+        mesh = vis_param.map.to_o3d_mesh()
+        o3d.io.write_triangle_mesh("mesh.ply", mesh)
+        torch.save(vis_param.poses, "traj.pth")
+        logger.info("Model saved to mesh.ply and traj.pth")
 
 
 if __name__ == "__main__":
+    logger.add(".log")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/kinect.yaml", help="Path to config file.")
     parser.add_argument("--follow_camera", action="store_true", help="Make view-point follow the camera motion")
