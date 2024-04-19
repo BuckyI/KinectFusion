@@ -149,12 +149,12 @@ if __name__ == "__main__":
     H, W = depth.shape
     fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
 
-    Y, X = np.meshgrid(np.arange(0, W), np.arange(0, H))  # [H, W]
+    X, Y = np.meshgrid(np.arange(0, W), np.arange(0, H))  # [H, W]
     vertex = np.stack([(X - cx) / fx, (Y - cy) / fy, np.ones_like(X)], -1) * depth[..., None]  # [H, W, 3]
 
     points = vertex.reshape(-1, 3)  # [H*W, 3]
     colors = color.reshape(-1, 3)
-    colors = colors[:, ::-1]  # BGR2RGB
+    # colors = colors[:, ::-1]  # BGR2RGB
     bound = [-2, 2, -2, 2, 0.5, 2.5]
 
     pcd = o3d.geometry.PointCloud()
