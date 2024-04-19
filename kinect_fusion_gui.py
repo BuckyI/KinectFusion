@@ -68,7 +68,7 @@ def refresh(vis):
     # Tcw
     if vis_param.curr_pose is None:  # 第一帧的初始位姿
         if "init_pose" in vis_param.args:
-            pose: torch.Tensor = torch.tensor(vis_param.args.init_pose, device=vis_param.device)
+            pose: torch.Tensor = torch.tensor(vis_param.args.init_pose, dtype=torch.float32, device=vis_param.device)
         else:
             pose = torch.eye(4, device=vis_param.device)
         vis_param.curr_pose = pose
