@@ -13,6 +13,7 @@ from loguru import logger
 from dataset.azure_kinect import KinectDataset, visualize_frame
 from fusion import TSDFVolumeTorch
 from tracker import ICPTracker
+from utils.analyze import display_frame, save_frame
 from utils.utils import get_time, get_volume_setting, load_config
 
 
@@ -212,12 +213,14 @@ if __name__ == "__main__":
         W=dataset.record_config.width,
     )
 
-    # DEBUG: CHECK
-    while not (frame := dataset.get_next_frame()):
-        continue
-    logger.debug(f"frame: {frame.timestamp=}, {frame.color.shape=}, {frame.depth.shape=}")
-    logger.debug(f"K: {frame.K=}")
-    visualize_frame(frame)
+    # # DEBUG: CHECK
+    # while not (frame := dataset.get_next_frame()):
+    #     continue
+    # logger.debug(f"frame: {frame.timestamp=}, {frame.color.shape=}, {frame.depth.shape=}")
+    # logger.debug(f"K: {frame.K=}")
+    # visualize_frame(frame)
+    # display_frame(frame.depth, frame.color, frame.K)
+    # save_frame(frame.depth, frame.color, frame.K)
 
     # visualize
     vis = o3d.visualization.VisualizerWithKeyCallback()
