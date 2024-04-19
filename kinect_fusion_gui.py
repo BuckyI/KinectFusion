@@ -65,8 +65,14 @@ def refresh(vis):
     depth0 = torch.from_numpy(frame.depth).to(vis_param.device)
     K: torch.Tensor = torch.from_numpy(frame.K).to(vis_param.device)
 
+    # Tcw
     if vis_param.curr_pose is None:  # 第一帧的初始位姿
-        vis_param.curr_pose = torch.eye(4).to(vis_param.device)
+        if "init_pose" in vis_param.args:
+            pose: torch.Tensor = torch.tensor(vis_param.args.init_pose, device=vis_param.device)
+        else:
+            pose = torch.eye(4, device=vis_param.device)
+        vis_param.curr_pose = pose
+
     else:
         H, W = frame.depth.shape
         # render depth image (1) from tsdf volume
