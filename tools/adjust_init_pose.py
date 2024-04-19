@@ -98,7 +98,7 @@ class Window:
         self.current_camera = draw_camera(self.transformation)
 
         for g in [self.current_pcd, self.current_frame, self.current_camera]:
-            vis.add_geometry(g)
+            vis.add_geometry(g, reset_bounding_box=False)
 
         # indicate current pose
         logger.info("xyz_rotate: {}, xyz_translate: {}".format(self.xyz_rotate, self.xyz_translate))
