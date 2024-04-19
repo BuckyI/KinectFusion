@@ -7,24 +7,52 @@ from functools import partial
 import numpy as np
 import open3d as o3d
 from loguru import logger
-from scipy.spatial.transform import Rotation as R
+
+
+def draw_camera(c2w, cam_width=0.2, cam_height=0.15, f=0.1):
+    points = [
+        [0, 0, 0],
+        [-cam_width, -cam_height, f],
+        [cam_width, -cam_height, f],
+        [cam_width, cam_height, f],
+        [-cam_width, cam_height, f],
+    ]
+    lines = [[0, 1], [0, 2], [0, 3], [0, 4], [1, 2], [2, 3], [3, 4], [4, 1]]
+    colors = [[1, 0, 1] for i in range(len(lines))]
+
+    line_set = o3d.geometry.LineSet()
+    line_set.points = o3d.utility.Vector3dVector(points)
+    line_set.lines = o3d.utility.Vector2iVector(lines)
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    line_set.transform(c2w)
+
+    return line_set
 
 
 class Window:
     "创建一个可视化窗口，展示点云，"
 
-    def __init__(self, pcd, bound=[-1, 1, -1, 1, -1, 1]):
+    def __init__(
+        self,
+        pcd,
+        bound: list[float] = [-1, 1, -1, 1, -1, 1],
+        xyz_rotate: list[float] = [0, 0, 0],
+        xyz_translate: list[float] = [0.0, 0.0, 0.0],
+    ):
         vis = o3d.visualization.VisualizerWithKeyCallback()
         vis.create_window(width=1280, height=960)
 
         self.original_pcd = pcd
-        self.current_pcd = o3d.geometry.PointCloud(pcd)
         self.vis = vis
 
-        self.xyz_rotate = [0, 0, 0]
-        self.xyz_translate = [0.0, 0.0, 0.0]
-        self._rotate_unit = 1
+        self.xyz_rotate: list[float] = xyz_rotate  # x, y, z rotate radians
+        self.xyz_translate: list[float] = xyz_translate  # x, y, z translate
+        self._rotate_unit = 1 / 180 * np.pi  # 1 degree in radian
         self._translate_unit = 0.01
+
+        self.current_pcd = self.transformed_pcd()
+        self.current_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3).transform(self.transformation)
+        self.current_camera = draw_camera(self.transformation)
 
         # show initial point cloud
         coord_axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
@@ -33,7 +61,7 @@ class Window:
         bbox = o3d.geometry.AxisAlignedBoundingBox(vol_bounds[:, 0], vol_bounds[:, 1])
         bbox.color = (1, 0, 0)
 
-        for g in [self.current_pcd, coord_axes, bbox]:
+        for g in [self.current_pcd, self.current_frame, self.current_camera, coord_axes, bbox]:
             vis.add_geometry(g)
 
         vis.register_key_callback(88, partial(self._rotate, axis="x"))  # X
@@ -47,27 +75,34 @@ class Window:
         vis.run()
         vis.destroy_window()
 
+    @property
+    def transformation(self):
+        T = np.eye(4)
+        T[:3, :3] = o3d.geometry.PointCloud.get_rotation_matrix_from_xyz(self.xyz_rotate)
+        T[:3, 3] = self.xyz_translate
+        return T
+
     def transformed_pcd(self):
         pcd = o3d.geometry.PointCloud(self.original_pcd)
-        pcd.rotate(R.from_euler("xyz", self.xyz_rotate, degrees=True).as_matrix())
-        pcd.translate(self.xyz_translate)
+        pcd.transform(self.transformation)
+        # pcd.rotate(pcd.get_rotation_matrix_from_xyz(self.xyz_rotate), center=[0, 0, 0])
+        # pcd.translate(self.xyz_translate)
         return pcd
 
-    def _update_pcd(self, vis):
-        pcd = self.transformed_pcd()
-        vis.remove_geometry(self.current_pcd, reset_bounding_box=False)
-        vis.add_geometry(pcd, reset_bounding_box=False)
-        self.current_pcd = pcd
+    def _update_scene(self, vis):
+        for g in [self.current_pcd, self.current_frame, self.current_camera]:
+            vis.remove_geometry(g, reset_bounding_box=False)
+
+        self.current_pcd = self.transformed_pcd()
+        self.current_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3).transform(self.transformation)
+        self.current_camera = draw_camera(self.transformation)
+
+        for g in [self.current_pcd, self.current_frame, self.current_camera]:
+            vis.add_geometry(g)
 
         # indicate current pose
         logger.info("xyz_rotate: {}, xyz_translate: {}".format(self.xyz_rotate, self.xyz_translate))
-        rotaion = R.from_euler("xyz", self.xyz_rotate, degrees=True).as_matrix()
-        transformation = np.eye(4)
-        transformation[:3, :3] = rotaion
-        transformation[:3, 3] = self.xyz_translate
-
-        logger.info("rotation matrix: \n{}".format(rotaion))
-        logger.info("transformation matrix: \n{}".format(transformation))
+        logger.info("transformation matrix: \n{}".format(self.transformation))
 
     def _rotate(self, vis, *, axis: str):
         "axis: 'x', 'y', 'z'"
@@ -78,7 +113,7 @@ class Window:
                 self.xyz_rotate[1] += self._rotate_unit
             case "z":
                 self.xyz_rotate[2] += self._rotate_unit
-        self._update_pcd(vis)
+        self._update_scene(vis)
         return True
 
     def _translate(self, vis, *, axis: str):
@@ -90,7 +125,7 @@ class Window:
                 self.xyz_translate[1] += self._translate_unit
             case "z":
                 self.xyz_translate[2] += self._translate_unit
-        self._update_pcd(vis)
+        self._update_scene(vis)
         return True
 
     def _space(self, vis, action, mods):
@@ -120,11 +155,12 @@ if __name__ == "__main__":
     points = vertex.reshape(-1, 3)  # [H*W, 3]
     colors = color.reshape(-1, 3)
     colors = colors[:, ::-1]  # BGR2RGB
+    bound = [-2, 2, -2, 2, 0.5, 2.5]
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
-    pcd.colors = o3d.utility.Vector3dVector(colors / 255.0)
+    # pcd.colors = o3d.utility.Vector3dVector(colors / 255.0)
 
     logger.info("Now visualize point cloud, use keyboard to adjust pose until it looks good")
     logger.info("x, y, z for rotate, 1, 2, 3 for translate, space for change direction")
-    Window(pcd)
+    win = Window(pcd, bound=bound)
