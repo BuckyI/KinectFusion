@@ -9,6 +9,7 @@ import open3d as o3d
 import torch
 import trimesh
 from loguru import logger
+from torch.utils.tensorboard import SummaryWriter
 
 from dataset.azure_kinect import KinectDataset, visualize_frame
 from fusion import TSDFVolumeTorch
@@ -37,6 +38,8 @@ class State:
     poses: list[tuple[int, torch.Tensor]] = field(default_factory=list)  # 记录历史位姿 (timestamp, pose)
     finished: bool = False  # 用来标记整个重建流程是否结束，简化动画更新逻辑
 
+    logger: SummaryWriter = field(default_factory=lambda: SummaryWriter())
+
 
 def refresh(vis):
     if vis_param.finished:
@@ -52,6 +55,8 @@ def refresh(vis):
         save_model(vis, False)  # 保存模型
         vis_param.finished = True
         return False
+
+    t1 = time.time()  # 计算当前帧处理时间
 
     frame = vis_param.dataset.get_next_frame()  # 取出当前帧
     logger.debug("Frame: {}/{} at {}".format(vis_param.frame_id, vis_param.n_frames, vis_param.dataset.current_timestamp))
@@ -94,14 +99,18 @@ def refresh(vis):
         vis_param.curr_pose = vis_param.curr_pose @ T10
 
     vis_param.poses.append((vis_param.dataset.current_timestamp, vis_param.curr_pose))  # 记录历史位姿
+    # fusion
+    vis_param.map.integrate(depth0, K, vis_param.curr_pose, obs_weight=1.0, color_img=color0)
+
+    t2 = time.time()
+    vis_param.logger.add_scalar("time/process_fps", 1 / (t2 - t1), vis_param.frame_id)
+    vis_param.logger.add_scalar("time/process_time", t2 - t1, vis_param.frame_id)
 
     # update view-point
     if vis_param.args.follow_camera:
         follow_camera(vis, vis_param.curr_pose.cpu().numpy())
-    # fusion
-    vis_param.map.integrate(depth0, K, vis_param.curr_pose, obs_weight=1.0, color_img=color0)
     # update mesh
-    if vis_param.frame_id % 5 == 0:
+    if vis_param.frame_id % 10 == 0:
         # NOTE: 不断提取可视化的 mesh，会减缓运行速度
         mesh = vis_param.map.to_o3d_mesh()
         if vis_param.current_mesh is not None:
@@ -115,6 +124,17 @@ def refresh(vis):
     vis.add_geometry(camera, reset_bounding_box=False)
     vis_param.current_camera = camera
 
+    if vis_param.frame_id % 20 == 0:
+        screenshot = np.asarray(vis.capture_screen_float_buffer())  # (H, W, 3)
+        vis_param.logger.add_image("visualize", screenshot, dataformats="HWC", global_step=vis_param.frame_id)
+        # verts, faces, norms, colors = vis_param.map.get_mesh()
+        # vis_param.logger.add_mesh(
+        #     "mesh",
+        #     vertices=verts.reshape(1, -1, 3).copy(),
+        #     faces=faces.reshape(1, -1, 3).copy(),
+        #     colors=colors.reshape(1, -1, 3).copy() if colors is not None else None,
+        #     global_step=vis_param.frame_id,
+        # )
     # 继续处理下一帧
     vis_param.frame_id += 1
     return True
@@ -196,6 +216,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dataset = KinectDataset(
         os.path.join(args.video_path),
+        sample_timestep=round(1 / args.sample_fps * 1e6) if args.sample_fps > 0 else -1,
         scale=args.scale,
         near=args.near,
         far=args.far,
@@ -217,8 +238,24 @@ if __name__ == "__main__":
         n_frames=len(dataset),  # estimated total frames
         H=dataset.record_config.height,
         W=dataset.record_config.width,
+        logger=SummaryWriter("runs/" + time.strftime("%Y%m%d%H%M%S", time.localtime())),
     )
 
+    # 记录基础设置
+    settings = {
+        # "dataset": args.video_path, # error
+        "scale": args.scale,
+        "near": args.near,
+        "far": args.far,
+        "start": args.start,
+        "end": args.end,
+        "sample_fps": args.sample_fps,
+        "voxel_size": args.voxel_size,
+        "estimated_total_frames": len(dataset),
+        "total_length(sec)": (dataset.end - dataset.start) / 1e6,
+    }
+    for k, v in settings.items():
+        vis_param.logger.add_text("settings/" + k, str(v), 0)
     # # DEBUG: CHECK
     # while not (frame := dataset.get_next_frame()):
     #     continue
