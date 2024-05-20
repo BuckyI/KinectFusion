@@ -9,9 +9,10 @@ import open3d as o3d
 import torch
 import trimesh
 from loguru import logger
+from skimage.metrics import normalized_root_mse
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset.azure_kinect import KinectDataset, visualize_frame
+from dataset.azure_kinect import Frame, KinectDataset, visualize_frame
 from fusion import TSDFVolumeTorch
 from tracker import ICPTracker
 from utils.analyze import display_frame, save_frame
@@ -39,6 +40,7 @@ class State:
     finished: bool = False  # 用来标记整个重建流程是否结束，简化动画更新逻辑
 
     logger: SummaryWriter = field(default_factory=lambda: SummaryWriter())
+    last_frame: Optional[Frame] = None
 
 
 def refresh(vis):
@@ -69,6 +71,29 @@ def refresh(vis):
     color0 = torch.from_numpy(frame.color).to(vis_param.device)
     depth0 = torch.from_numpy(frame.depth).to(vis_param.device)
     K: torch.Tensor = torch.from_numpy(frame.K).to(vis_param.device)
+
+    # 记录图片相似度
+    if vis_param.last_frame is not None:
+        f1 = vis_param.last_frame
+        f2 = frame
+        # gray = lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+        # color_ssim = structural_similarity(gray(f1.color), gray(f2.color))
+        # color_nmi = normalized_mutual_information(f1.color.reshape(-1), f2.color.reshape(-1))
+        color_mse = normalized_root_mse(f1.color, f2.color)
+        # depth_mse = normalized_root_mse(f1.depth, f2.depth)
+        t = f2.timestamp * 1e-6
+
+        # vis_param.logger.add_scalar("similarity/color_ssim", color_ssim, vis_param.frame_id, t)
+        # vis_param.logger.add_scalar("similarity/color_nmi", color_nmi, vis_param.frame_id, t)
+        vis_param.logger.add_scalar("similarity/color_mse", color_mse, vis_param.frame_id, t)
+        # vis_param.logger.add_scalar("similarity/depth_mse", depth_mse, vis_param.frame_id, t)
+
+        if color_mse <= 0.9:  # skip similar view
+            vis_param.frame_id += 1
+            logger.info("Skipping similar frame at {} with mse {:.3f}".format(vis_param.frame_id, color_mse))
+            return False
+
+    vis_param.last_frame = frame
 
     # Tcw
     if vis_param.curr_pose is None:  # 第一帧的初始位姿
