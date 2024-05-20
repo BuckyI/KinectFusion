@@ -191,19 +191,15 @@ class TSDFVolumeTorch:
             rgb_vals = color_vol[verts_ind[:, 0], verts_ind[:, 1], verts_ind[:, 2]].cpu().numpy()
             return verts, faces, norms, rgb_vals.astype(np.uint8)
         else:
-            return verts, faces, norms
+            return verts, faces, norms, None
 
     def to_o3d_mesh(self):
         """Convert to o3d mesh object for visualization"""
-        result = self.get_mesh()
+        verts, faces, norms, colors = self.get_mesh()
         if self.fuse_color:
-            # NOTE: 源代码初始化时，设定了 fuse_color=True，所以返回值有 4 个
-            assert len(result) == 4  # 给类型检查器确定
-            verts, faces, norms, colors = result
+            assert colors is not None  # 给类型检查器确定
             colors = colors / 255.0  # [0, 255] -> [0, 1]
         else:
-            assert len(result) == 3  # 给类型检查器确定
-            verts, faces, norms = result
             colors = 0.5
 
         mesh = o3d.geometry.TriangleMesh()
