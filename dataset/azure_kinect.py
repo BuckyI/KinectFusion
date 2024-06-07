@@ -159,7 +159,8 @@ class KinectDataset:
 
     def __len__(self):
         "estimated frame count"
-        return int((self.end - self.start) / 1e6 * self.record_config.fps)
+        # return int((self.end - self.start) / 1e6 * self.record_config.fps)
+        return int((self.end - self.start) / self.sample_timestep)
 
 
 def visualize_frame(frame: Frame):

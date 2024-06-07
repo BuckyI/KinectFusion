@@ -100,7 +100,7 @@ def draw_camera(c2w, cam_width=0.2, cam_height=0.15, f=0.1):
     line_set.points = o3d.utility.Vector3dVector(points)
     line_set.lines = o3d.utility.Vector2iVector(lines)
     line_set.colors = o3d.utility.Vector3dVector(colors)
-    line_set.transform(c2w)
+    line_set.transform(c2w)  # Twc 把 camera 坐标系下的线条坐标，转化为 world 坐标系下的线条坐标
 
     return line_set
 
@@ -112,11 +112,10 @@ def follow_camera(vis, c2w, z_offset=-2):
     :param z_offset: offset along z-direction of eye wrt camera
     :return:
     """
-    e2c = np.eye(4)
+    e2c = np.eye(4)  # Tce
     e2c[2, 3] = z_offset  # z 轴给一个固定的偏移
     e2w = c2w @ e2c
-    # TODO: 这里的原理还不太明白
-    # e2w 应该是代表了视角 eye 到 world 的变换，不过设定观察视角时，需要的是 world 到 eye 的变换，即 eye 的位姿
+    # e2w 应该是代表了视角 eye 到 world 的变换 Twe，不过设定观察视角时，需要的是 world 到 eye 的变换 Tew，即 eye 的位姿
     set_view(vis, np.linalg.inv(e2w))
 
 

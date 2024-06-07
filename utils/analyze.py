@@ -10,7 +10,7 @@ def profile(path: str = "perf_report.txt"):
     Generate csv from perf report, which may get from:
     python -m cProfile -s cumtime main.py >> perf_report.txt
     """
-    with open(path, "r", encoding="utf8") as f:
+    with open(path, "r", encoding="utf16") as f:
         profile: list[str] = f.readlines()
         # remove head info, empty lines, and \n
         profile = [line.rstrip() for line in profile[4:]]
@@ -54,3 +54,6 @@ def save_frame(depth, color, K, path: str = "frame.npz"):
 def load_frame(path: str = "frame.npz"):
     data = np.load(path)
     return data["depth"], data["color"], data["K"]
+
+
+# profile("../perf_report_0419_norender.txt")
